@@ -36,11 +36,15 @@ const props = defineProps({
 const displayValue = ref(0)
 
 watch(() => props.value, (newVal) => {
-  animateValue(newVal)
+  if (newVal !== displayValue.value) {
+    animateValue(newVal)
+  }
 }, { immediate: true })
 
 function animateValue(target) {
   const start = displayValue.value
+  if (start === target) return
+
   const increment = (target - start) / (props.duration / 16)
   let current = start
 

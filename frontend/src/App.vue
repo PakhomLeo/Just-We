@@ -1,3 +1,7 @@
 <template>
-  <div id="app">DynamicWePubMonitor</div>
+  <router-view />
 </template>
+
+<script setup>
+// Root app component - renders router view
+</script>

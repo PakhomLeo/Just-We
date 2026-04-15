@@ -1,0 +1,19 @@
+@import './variables';
+@import './base';
+@import './transitions';
+
+// Global CSS Variables for runtime theming
+:root {
+  --color-bg: #{$color-bg};
+  --color-card: #{$color-card};
+  --color-text: #{$color-text};
+  --color-text-secondary: #{$color-text-secondary};
+  --color-primary: #{$color-primary};
+  --color-primary-dark: #{$color-primary-dark};
+  --color-danger: #{$color-danger};
+  --color-success: #{$color-success};
+  --color-info: #{$color-info};
+  --radius-sm: #{$radius-sm};
+  --radius-md: #{$radius-md};
+  --radius-lg: #{$radius-lg};
+}

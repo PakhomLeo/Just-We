@@ -1,0 +1,33 @@
+// Cream-white theme (main backgrounds)
+$color-bg: #F8F4F0;
+$color-card: #FFFFFF;
+$color-text: #333333;
+$color-text-secondary: #666666;
+
+// Orange-red accent
+$color-primary: #FF6B00;
+$color-primary-dark: #E55F00;
+$color-danger: #FF3D00;
+
+// Status colors
+$color-success: #22C55E;
+$color-info: #3B82F6;
+$color-warning: #F59E0B;
+
+// Border radius
+$radius-sm: 8px;
+$radius-md: 16px;
+$radius-lg: 24px;
+
+// Shadows
+$shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06);
+$shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.1);
+
+// Transitions
+$transition-fast: 0.15s ease;
+$transition-normal: 0.25s ease;
+
+// Layout
+$sidebar-width: 240px;
+$sidebar-collapsed-width: 64px;
+$header-height: 60px;

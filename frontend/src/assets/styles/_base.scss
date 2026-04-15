@@ -1,0 +1,48 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: $color-bg;
+  color: $color-text;
+  line-height: 1.6;
+}
+
+.card {
+  background: $color-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+  transition: transform $transition-normal, box-shadow $transition-normal;
+
+  &:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: $shadow-card-hover;
+  }
+}
+
+.card-static {
+  background: $color-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+// Element Plus overrides
+.el-button--primary {
+  --el-button-bg-color: #{$color-primary};
+  --el-button-border-color: #{$color-primary};
+  --el-button-hover-bg-color: #{$color-primary-dark};
+  --el-button-hover-border-color: #{$color-primary-dark};
+}
+
+.el-input__wrapper {
+  border-radius: $radius-sm;
+}
+
+.el-card {
+  border-radius: $radius-md;
+  border: none;
+  box-shadow: $shadow-card;
+}

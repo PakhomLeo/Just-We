@@ -1,0 +1,51 @@
+// Card hover animation
+.card-hover {
+  transition: transform $transition-normal, box-shadow $transition-normal;
+
+  &:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: $shadow-card-hover;
+  }
+}
+
+// Fade transition
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity $transition-fast;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+// Slide transition
+.slide-enter-active,
+.slide-leave-active {
+  transition: transform $transition-normal;
+}
+
+.slide-enter-from {
+  transform: translateX(100%);
+}
+
+.slide-leave-to {
+  transform: translateX(100%);
+}
+
+// Pulse animation for floating button
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba($color-primary, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 15px rgba($color-primary, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba($color-primary, 0);
+  }
+}
+
+.pulse-button {
+  animation: pulse 2s infinite;
+}

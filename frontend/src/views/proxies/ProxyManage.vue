@@ -129,10 +129,10 @@ async function fetchData() {
   loading.value = true
   try {
     const [proxiesRes, statsRes] = await Promise.all([
-      getProxies(activeTab.value),
+      getProxies({ service_type: activeTab.value }),
       getProxyStats()
     ])
-    proxies.value = proxiesRes.data || []
+    proxies.value = proxiesRes.data?.items || []
     stats.value = statsRes.data || { total: 0, availableRate: 0, lastCheck: '-' }
   } catch (error) {
     // Silent fail
@@ -147,7 +147,8 @@ function handleTabChange() {
 
 async function handleAdd() {
   try {
-    await addProxy({ ...proxyForm, category: activeTab.value })
+    const [host, port] = proxyForm.ip.split(':')
+    await addProxy({ host, port: parseInt(port), service_type: activeTab.value })
     ElMessage.success('添加成功')
     proxyForm.ip = ''
     proxyForm.type = 'http'

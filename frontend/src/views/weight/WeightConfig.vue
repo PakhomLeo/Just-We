@@ -154,7 +154,8 @@ onMounted(async () => {
     const response = await getWeightConfig()
     Object.assign(configForm, response.data)
   } catch (error) {
-    // Use defaults
+    console.error('Failed to load weight config:', error)
+    ElMessage.warning('使用默认配置')
   }
 })
 

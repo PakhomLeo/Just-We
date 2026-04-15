@@ -152,7 +152,8 @@ async function fetchUsers() {
     users.value = response.data || []
     stats.value.totalUsers = users.value.length
   } catch (error) {
-    // Silent fail
+    console.error('Failed to fetch users:', error)
+    ElMessage.error('获取用户列表失败')
   } finally {
     loading.value = false
   }

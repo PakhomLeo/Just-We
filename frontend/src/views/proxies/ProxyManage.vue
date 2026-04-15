@@ -135,7 +135,8 @@ async function fetchData() {
     proxies.value = proxiesRes.data?.items || []
     stats.value = statsRes.data || { total: 0, availableRate: 0, lastCheck: '-' }
   } catch (error) {
-    // Silent fail
+    console.error('Failed to fetch proxies:', error)
+    ElMessage.error('获取代理列表失败')
   } finally {
     loading.value = false
   }

@@ -1,246 +1,285 @@
 <template>
   <div class="system-settings">
-    <div class="settings-layout">
-      <div class="settings-menu">
-        <el-menu :default-active="activeSection" @select="handleSelect">
-          <el-menu-item index="general">
-            <el-icon><Setting /></el-icon>
-            <span>通用配置</span>
-          </el-menu-item>
-          <el-menu-item index="ai">
-            <el-icon><Cpu /></el-icon>
-            <span>AI Prompt</span>
-          </el-menu-item>
-          <el-menu-item index="notifications">
-            <el-icon><Bell /></el-icon>
-            <span>通知渠道</span>
-          </el-menu-item>
-          <el-menu-item index="data">
-            <el-icon><Delete /></el-icon>
-            <span>数据清理</span>
-          </el-menu-item>
-          <el-menu-item index="security">
-            <el-icon><Lock /></el-icon>
-            <span>安全</span>
-          </el-menu-item>
-        </el-menu>
-      </div>
+    <div class="settings-grid">
+      <section class="panel card-static">
+        <h3>AI 分析配置</h3>
+        <el-form label-position="top">
+          <el-form-item label="API URL">
+            <el-input v-model="settings.ai.api_url" />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input v-model="settings.ai.api_key" show-password />
+          </el-form-item>
+          <el-form-item label="模型名称">
+            <el-input v-model="settings.ai.model" />
+          </el-form-item>
+          <el-form-item label="Prompt 模板">
+            <el-input v-model="settings.ai.prompt_template" type="textarea" :rows="8" />
+          </el-form-item>
+          <el-form-item label="启用 AI">
+            <el-switch v-model="settings.ai.enabled" />
+          </el-form-item>
+        </el-form>
+      </section>
 
-      <div class="settings-content">
-        <div v-if="activeSection === 'general'" class="section-content card-static">
-          <h3>通用配置</h3>
-          <el-form label-position="top">
-            <el-form-item label="系统名称">
-              <el-input v-model="settings.systemName" />
-            </el-form-item>
-            <el-form-item label="默认抓取间隔 (分钟)">
-              <el-input-number v-model="settings.defaultCrawlInterval" :min="5" />
-            </el-form-item>
-            <el-form-item label="最大并发抓取数">
-              <el-input-number v-model="settings.maxConcurrentCrawls" :min="1" :max="10" />
-            </el-form-item>
-            <el-form-item label="启用自动抓取">
-              <el-switch v-model="settings.autoCrawlEnabled" />
-            </el-form-item>
-          </el-form>
-        </div>
+      <section class="panel card-static">
+        <h3>抓取策略</h3>
+        <el-form label-position="top">
+          <el-form-item label="Tier 阈值">
+            <div class="inline-grid">
+              <el-input-number v-model="settings.fetchPolicy.tier_thresholds.tier1" :min="0" :max="100" />
+              <el-input-number v-model="settings.fetchPolicy.tier_thresholds.tier2" :min="0" :max="100" />
+              <el-input-number v-model="settings.fetchPolicy.tier_thresholds.tier3" :min="0" :max="100" />
+              <el-input-number v-model="settings.fetchPolicy.tier_thresholds.tier4" :min="0" :max="100" />
+            </div>
+          </el-form-item>
+          <el-form-item label="Tier 轮询间隔（小时）">
+            <div class="inline-grid">
+              <el-input-number v-model="settings.fetchPolicy.check_intervals['1']" :min="1" />
+              <el-input-number v-model="settings.fetchPolicy.check_intervals['2']" :min="1" />
+              <el-input-number v-model="settings.fetchPolicy.check_intervals['3']" :min="1" />
+              <el-input-number v-model="settings.fetchPolicy.check_intervals['4']" :min="1" />
+              <el-input-number v-model="settings.fetchPolicy.check_intervals['5']" :min="1" />
+            </div>
+          </el-form-item>
+          <el-form-item label="主通道映射">
+            <div class="policy-list">
+              <div v-for="tier in ['1', '2', '3', '4', '5']" :key="tier" class="policy-row">
+                <span>Tier {{ tier }}</span>
+                <el-select v-model="settings.fetchPolicy.primary_modes[tier]" style="width: 180px">
+                  <el-option label="weread" value="weread" />
+                  <el-option label="mp_admin" value="mp_admin" />
+                </el-select>
+              </div>
+            </div>
+          </el-form-item>
+          <el-form-item label="重试次数">
+            <el-input-number v-model="settings.fetchPolicy.retry_limit" :min="0" :max="10" />
+          </el-form-item>
+          <el-form-item label="重试退避（秒）">
+            <el-input-number v-model="settings.fetchPolicy.retry_backoff_seconds" :min="1" :max="600" />
+          </el-form-item>
+          <el-form-item label="随机延迟范围（毫秒）">
+            <div class="inline-grid inline-grid-two">
+              <el-input-number v-model="settings.fetchPolicy.random_delay_min_ms" :min="0" />
+              <el-input-number v-model="settings.fetchPolicy.random_delay_max_ms" :min="0" />
+            </div>
+          </el-form-item>
+        </el-form>
+      </section>
 
-        <div v-if="activeSection === 'ai'" class="section-content card-static">
-          <h3>AI Prompt 配置</h3>
-          <el-form label-position="top">
-            <el-form-item label="文章分析 Prompt">
+      <section class="panel card-static">
+        <h3>邮件告警</h3>
+        <el-form label-position="top">
+          <el-form-item label="启用邮件通知">
+            <el-switch v-model="settings.notificationEmail.enabled" />
+          </el-form-item>
+          <template v-if="settings.notificationEmail.enabled">
+            <el-form-item label="SMTP Host">
+              <el-input v-model="settings.notificationEmail.smtp_host" />
+            </el-form-item>
+            <el-form-item label="SMTP Port">
+              <el-input-number v-model="settings.notificationEmail.smtp_port" :min="1" :max="65535" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="SMTP 用户名">
+              <el-input v-model="settings.notificationEmail.smtp_username" />
+            </el-form-item>
+            <el-form-item label="SMTP 密码">
+              <el-input v-model="settings.notificationEmail.smtp_password" show-password />
+            </el-form-item>
+            <el-form-item label="发件人邮箱">
+              <el-input v-model="settings.notificationEmail.from_email" />
+            </el-form-item>
+            <el-form-item label="收件人邮箱">
               <el-input
-                v-model="settings.aiPrompts.articleAnalysis"
-                type="textarea"
-                :rows="6"
+                :model-value="settings.notificationEmail.to_emails.join(', ')"
+                placeholder="ops@example.com, admin@example.com"
+                @update:model-value="updateRecipients"
               />
             </el-form-item>
-            <el-form-item label="AI 模型">
-              <el-select v-model="settings.aiModel">
-                <el-option label="GPT-4" value="gpt-4" />
-                <el-option label="GPT-3.5 Turbo" value="gpt-3.5-turbo" />
-                <el-option label="Claude 3" value="claude-3" />
-              </el-select>
+            <el-form-item label="启用 TLS">
+              <el-switch v-model="settings.notificationEmail.use_tls" />
             </el-form-item>
-            <el-form-item label="AI 判断阈值">
-              <el-slider v-model="settings.aiThreshold" :min="0" :max="1" :step="0.1" show-input />
-            </el-form-item>
-          </el-form>
-        </div>
+          </template>
+        </el-form>
+      </section>
 
-        <div v-if="activeSection === 'notifications'" class="section-content card-static">
-          <h3>通知渠道</h3>
-          <el-form label-position="top">
-            <el-form-item label="邮件通知">
-              <el-switch v-model="settings.notificationChannels.email" />
-            </el-form-item>
-            <el-form-item v-if="settings.notificationChannels.email" label="邮件 SMTP 配置">
-              <el-input v-model="settings.smtpConfig" type="textarea" :rows="3" placeholder="smtp.example.com:587:username:password" />
-            </el-form-item>
-            <el-form-item label="Webhook 通知">
-              <el-switch v-model="settings.notificationChannels.webhook" />
-            </el-form-item>
-            <el-form-item v-if="settings.notificationChannels.webhook" label="Webhook URL">
-              <el-input v-model="settings.webhookUrl" placeholder="https://..." />
-            </el-form-item>
-          </el-form>
-        </div>
+      <section class="panel card-static">
+        <h3>开发默认管理员</h3>
+        <el-alert
+          title="系统启动时会自动确保默认管理员存在"
+          type="info"
+          :closable="false"
+          show-icon
+        />
+        <el-descriptions :column="1" border class="admin-box">
+          <el-descriptions-item label="邮箱">admin@admin.com</el-descriptions-item>
+          <el-descriptions-item label="别名登录">admin</el-descriptions-item>
+          <el-descriptions-item label="密码">admin123</el-descriptions-item>
+        </el-descriptions>
+      </section>
+    </div>
 
-        <div v-if="activeSection === 'data'" class="section-content card-static">
-          <h3>数据清理</h3>
-          <el-form label-position="top">
-            <el-form-item label="日志保留天数">
-              <el-input-number v-model="settings.logRetentionDays" :min="7" :max="365" />
-            </el-form-item>
-            <el-form-item label="文章缓存保留天数">
-              <el-input-number v-model="settings.articleCacheDays" :min="30" :max="365" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="danger" @click="handleClearCache">
-                清理所有缓存
-              </el-button>
-              <el-button type="danger" plain @click="handleClearLogs">
-                清理历史日志
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </div>
-
-        <div v-if="activeSection === 'security'" class="section-content card-static">
-          <h3>安全设置</h3>
-          <el-form label-position="top">
-            <el-form-item label="JWT 过期时间 (小时)">
-              <el-input-number v-model="settings.jwtExpireHours" :min="1" :max="168" />
-            </el-form-item>
-            <el-form-item label="登录失败锁定">
-              <el-switch v-model="settings.loginLockEnabled" />
-            </el-form-item>
-            <el-form-item v-if="settings.loginLockEnabled" label="最大失败次数">
-              <el-input-number v-model="settings.maxLoginAttempts" :min="3" :max="10" />
-            </el-form-item>
-            <el-form-item label="启用双因素认证">
-              <el-switch v-model="settings.twoFactorEnabled" />
-            </el-form-item>
-          </el-form>
-        </div>
-
-        <div class="save-bar" v-if="hasChanges">
-          <el-button @click="resetSettings">重置</el-button>
-          <el-button type="primary" @click="handleSave">保存设置</el-button>
-        </div>
-      </div>
+    <div class="save-bar">
+      <el-button @click="reloadSettings">重置</el-button>
+      <el-button type="primary" :loading="saving" @click="handleSave">保存全部配置</el-button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Setting, Cpu, Bell, Delete, Lock } from '@element-plus/icons-vue'
+import {
+  getAIConfig,
+  getFetchPolicy,
+  getNotificationEmailConfig,
+  updateAIConfig,
+  updateFetchPolicy,
+  updateNotificationEmailConfig
+} from '@/api/system'
 
-const activeSection = ref('general')
-
+const saving = ref(false)
 const settings = reactive({
-  systemName: 'DynamicWePubMonitor',
-  defaultCrawlInterval: 30,
-  maxConcurrentCrawls: 5,
-  autoCrawlEnabled: true,
-  aiPrompts: {
-    articleAnalysis: '请分析以下文章，判断是否为AI生成。要求返回JSON格式：{"is_ai": true/false, "reason": "原因"}'
+  ai: {
+    api_url: '',
+    api_key: '',
+    model: '',
+    prompt_template: '',
+    enabled: true
   },
-  aiModel: 'gpt-4',
-  aiThreshold: 0.5,
-  notificationChannels: {
-    email: false,
-    webhook: false
+  fetchPolicy: {
+    tier_thresholds: { tier1: 80, tier2: 65, tier3: 50, tier4: 35 },
+    check_intervals: { 1: 24, 2: 48, 3: 72, 4: 144, 5: 336 },
+    primary_modes: { 1: 'weread', 2: 'weread', 3: 'mp_admin', 4: 'mp_admin', 5: 'mp_admin' },
+    retry_limit: 2,
+    retry_backoff_seconds: 30,
+    random_delay_min_ms: 500,
+    random_delay_max_ms: 2000
   },
-  smtpConfig: '',
-  webhookUrl: '',
-  logRetentionDays: 30,
-  articleCacheDays: 90,
-  jwtExpireHours: 24,
-  loginLockEnabled: true,
-  maxLoginAttempts: 5,
-  twoFactorEnabled: false
+  notificationEmail: {
+    enabled: false,
+    smtp_host: '',
+    smtp_port: 587,
+    smtp_username: '',
+    smtp_password: '',
+    from_email: '',
+    to_emails: [],
+    use_tls: true
+  }
 })
 
-const originalSettings = JSON.stringify(settings)
-const hasChanges = computed(() => JSON.stringify(settings) !== originalSettings)
+onMounted(reloadSettings)
 
-function handleSelect(index) {
-  activeSection.value = index
+async function reloadSettings() {
+  try {
+    const [aiRes, fetchPolicyRes, notificationEmailRes] = await Promise.all([
+      getAIConfig(),
+      getFetchPolicy(),
+      getNotificationEmailConfig()
+    ])
+    Object.assign(settings.ai, aiRes.data)
+    settings.fetchPolicy = {
+      ...settings.fetchPolicy,
+      ...fetchPolicyRes.data,
+      tier_thresholds: { ...settings.fetchPolicy.tier_thresholds, ...fetchPolicyRes.data.tier_thresholds },
+      check_intervals: { ...settings.fetchPolicy.check_intervals, ...fetchPolicyRes.data.check_intervals },
+      primary_modes: { ...settings.fetchPolicy.primary_modes, ...fetchPolicyRes.data.primary_modes }
+    }
+    Object.assign(settings.notificationEmail, notificationEmailRes.data)
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.detail || error?.response?.data?.error || '系统设置加载失败')
+  }
 }
 
-function handleSave() {
-  ElMessage.success('设置已保存')
+function updateRecipients(value) {
+  settings.notificationEmail.to_emails = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
-function resetSettings() {
-  Object.assign(settings, JSON.parse(originalSettings))
-}
-
-function handleClearCache() {
-  ElMessage.success('缓存已清理')
-}
-
-function handleClearLogs() {
-  ElMessage.success('历史日志已清理')
+async function handleSave() {
+  saving.value = true
+  try {
+    await Promise.all([
+      updateAIConfig(settings.ai),
+      updateFetchPolicy(settings.fetchPolicy),
+      updateNotificationEmailConfig(settings.notificationEmail)
+    ])
+    ElMessage.success('系统设置已保存')
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
 <style lang="scss" scoped>
 .system-settings {
-  .settings-layout {
-    display: grid;
-    grid-template-columns: 240px 1fr;
-    gap: 24px;
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
 
-  .settings-menu {
-    :deep(.el-menu) {
-      border: none;
-      background: transparent;
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
 
-      .el-menu-item {
-        border-radius: $radius-sm;
-        margin-bottom: 4px;
+.panel {
+  padding: 24px;
+}
 
-        &.is-active {
-          background: rgba($color-primary, 0.1);
-          color: $color-primary;
-        }
-      }
-    }
-  }
+.panel h3 {
+  margin-top: 0;
+}
 
-  .settings-content {
-    min-width: 0;
-  }
+.inline-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+}
 
-  .section-content {
-    padding: 24px;
+.inline-grid-two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 
-    h3 {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 24px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-    }
-  }
+.policy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.policy-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.admin-box {
+  margin-top: 16px;
+}
 
   .save-bar {
-    position: fixed;
-    bottom: 0;
-    left: $sidebar-width;
-    right: 0;
-    padding: 16px 24px;
-    background: $color-card;
-    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
     display: flex;
     justify-content: flex-end;
     gap: 12px;
-    z-index: 10;
+  }
+
+@media (max-width: 960px) {
+  .settings-grid,
+  .inline-grid,
+  .inline-grid-two {
+    grid-template-columns: 1fr;
+  }
+
+  .policy-row,
+  .save-bar {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

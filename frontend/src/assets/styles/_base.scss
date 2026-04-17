@@ -1,3 +1,5 @@
+@use './variables' as *;
+
 * {
   margin: 0;
   padding: 0;
@@ -9,6 +11,16 @@ body {
   background-color: $color-bg;
   color: $color-text;
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
 }
 
 .card {
@@ -29,6 +41,52 @@ body {
   box-shadow: $shadow-card;
 }
 
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+
+  h2 {
+    margin: 0 0 6px;
+    font-size: 24px;
+    line-height: 1.25;
+  }
+
+  p {
+    margin: 0;
+    color: $color-text-secondary;
+  }
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.table-card {
+  padding: 20px;
+  overflow: hidden;
+}
+
+.panel {
+  overflow: hidden;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.table-actions .el-button {
+  margin-left: 0;
+}
+
 // Element Plus overrides
 .el-button--primary {
   --el-button-bg-color: #{$color-primary};
@@ -37,12 +95,102 @@ body {
   --el-button-hover-border-color: #{$color-primary-dark};
 }
 
+.el-button {
+  border-radius: $radius-sm;
+  white-space: nowrap;
+}
+
+.el-button + .el-button {
+  margin-left: 8px;
+}
+
+.el-button--small {
+  min-height: 32px;
+  padding: 7px 12px;
+}
+
+.el-button--default {
+  min-height: 36px;
+}
+
+.el-button--large {
+  min-height: 44px;
+}
+
 .el-input__wrapper {
   border-radius: $radius-sm;
+}
+
+.el-select,
+.el-date-editor.el-input,
+.el-date-editor.el-input__wrapper {
+  max-width: 100%;
 }
 
 .el-card {
   border-radius: $radius-md;
   border: none;
   box-shadow: $shadow-card;
+}
+
+.el-table {
+  --el-table-header-bg-color: rgba(248, 244, 240, 0.72);
+}
+
+.el-table .cell {
+  word-break: break-word;
+}
+
+.el-table__fixed-right .cell,
+.el-table__fixed .cell {
+  white-space: normal;
+}
+
+.el-table .el-button + .el-button {
+  margin-left: 0;
+}
+
+@media (max-width: 960px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
+  }
+
+  .header-actions > * {
+    max-width: 100%;
+  }
+
+  .table-card {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+
+  .card-static,
+  .panel,
+  .table-card {
+    border-radius: 14px;
+  }
+
+  .page-header h2 {
+    font-size: 22px;
+  }
+
+  .header-actions > * {
+    width: 100% !important;
+  }
+
+  .el-pagination {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 }

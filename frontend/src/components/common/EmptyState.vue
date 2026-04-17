@@ -3,7 +3,7 @@
     <el-icon :size="64" color="#ccc">
       <component :is="icon || 'FolderOpened'" />
     </el-icon>
-    <p class="empty-title">{{ title || '暂无数据' }}</p>
+    <p class="empty-title">{{ title || message || '暂无数据' }}</p>
     <p v-if="description" class="empty-description">{{ description }}</p>
     <slot />
   </div>
@@ -14,6 +14,7 @@ import { FolderOpened } from '@element-plus/icons-vue'
 
 defineProps({
   icon: String,
+  message: String,
   title: String,
   description: String
 })
@@ -27,6 +28,7 @@ defineProps({
   justify-content: center;
   padding: 60px 20px;
   text-align: center;
+  gap: 6px;
 }
 
 .empty-title {

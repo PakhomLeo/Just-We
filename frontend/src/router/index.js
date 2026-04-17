@@ -25,7 +25,12 @@ const routes = [
       {
         path: 'accounts',
         name: 'Accounts',
-        component: () => import('@/views/accounts/AccountList.vue')
+        redirect: '/mp-accounts'
+      },
+      {
+        path: 'mp-accounts',
+        name: 'MpAccounts',
+        component: () => import('@/views/accounts/MpAccountManage.vue')
       },
       {
         path: 'articles',
@@ -55,9 +60,14 @@ const routes = [
         meta: { requiresAdmin: true }
       },
       {
-        path: 'users',
-        name: 'Users',
-        component: () => import('@/views/users/UserManage.vue'),
+        path: 'capture-accounts',
+        name: 'CaptureAccounts',
+        component: () => import('@/views/users/UserManage.vue')
+      },
+      {
+        path: 'system-users',
+        name: 'SystemUsers',
+        component: () => import('@/views/users/SystemUsers.vue'),
         meta: { requiresAdmin: true }
       },
       {
@@ -77,9 +87,13 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
+  const requiresAuth = to.matched.some(record => record.meta.requiresAuth !== false)
+  const requiresAdmin = to.matched.some(record => record.meta.requiresAdmin)
 
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+  if (requiresAuth && !authStore.isAuthenticated) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
+  } else if (requiresAdmin && authStore.user?.role !== 'admin') {
+    next({ name: 'Dashboard' })
   } else if (to.name === 'Login' && authStore.isAuthenticated) {
     next({ name: 'Dashboard' })
   } else {

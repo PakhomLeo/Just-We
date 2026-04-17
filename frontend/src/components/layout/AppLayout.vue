@@ -40,4 +40,20 @@ const appStore = useAppStore()
   background-color: $color-bg;
   min-height: calc(100vh - $header-height);
 }
+
+@media (max-width: 960px) {
+  .main-container {
+    margin-left: $sidebar-collapsed-width;
+  }
+
+  .content {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .content {
+    padding: 12px;
+  }
+}
 </style>

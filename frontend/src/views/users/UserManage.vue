@@ -1,271 +1,397 @@
 <template>
-  <div class="user-manage">
-    <div class="stats-row">
-      <StatCard label="总用户数" :value="stats.totalUsers" :icon="User" />
-      <StatCard label="WeRead 账号" :value="stats.wereadAccounts" :icon="Notebook" />
-      <StatCard label="MP 账号" :value="stats.mpAccounts" :icon="Memo" />
-      <StatCard label="即将到期" :value="stats.expiringSoon" :icon="Warning" icon-color="#FF3D00" icon-bg="rgba(255, 61, 0, 0.1)" />
+  <div class="capture-account-manage">
+    <div class="page-header">
+      <div>
+        <h2>抓取账号管理</h2>
+        <p>绑定用于列表抓取和详情抓取的 WeRead / 公众号后台账号，并关注健康状态。</p>
+      </div>
+      <div class="header-actions">
+        <el-select v-model="filterType" clearable placeholder="账号类型" style="width: 160px">
+          <el-option label="微信读书" value="weread" />
+          <el-option label="公众号管理员" value="mp_admin" />
+        </el-select>
+        <el-select v-model="filterHealth" clearable placeholder="健康状态" style="width: 160px">
+          <el-option label="正常" value="normal" />
+          <el-option label="受限" value="restricted" />
+          <el-option label="已过期" value="expired" />
+          <el-option label="不可用" value="invalid" />
+        </el-select>
+        <el-button v-if="canManageAccounts" type="primary" @click="openAddDialog()">
+          添加抓取账号
+        </el-button>
+      </div>
     </div>
 
-    <el-tabs v-model="activeTab">
-      <el-tab-pane label="系统用户" name="users">
-        <div class="table-container card-static">
-          <el-table :data="users" v-loading="loading" stripe>
-            <el-table-column prop="username" label="用户名" width="140" />
-            <el-table-column prop="email" label="邮箱" min-width="180" />
-            <el-table-column prop="role" label="角色" width="100">
-              <template #default="{ row }">
-                <el-tag :type="row.role === 'admin' ? 'danger' : 'info'" size="small">
-                  {{ row.role }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="last_login" label="最后登录" width="160">
-              <template #default="{ row }">
-                {{ row.last_login ? formatDateTime(row.last_login) : '-' }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="80">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small">
-                  {{ row.status === 'active' ? '活跃' : '停用' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="160" fixed="right">
-              <template #default="{ row }">
-                <el-button size="small" @click="handleEditUser(row)">
-                  <el-icon><Edit /></el-icon>
-                </el-button>
-                <el-button size="small" type="danger" @click="handleDeleteUser(row)">
-                  <el-icon><Delete /></el-icon>
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </el-tab-pane>
+    <div class="stats-grid">
+      <StatCard label="账号总数" :value="accounts.length" :icon="Connection" />
+      <StatCard label="健康账号" :value="healthyCount" :icon="CircleCheck" />
+      <StatCard label="即将过期" :value="expiringSoonCount" :icon="Warning" />
+      <StatCard label="最近失败" :value="failureCount" :icon="Monitor" />
+    </div>
 
-      <el-tab-pane label="公众号账号" name="accounts">
-        <div v-if="expiringAccounts.length > 0" class="expiring-warning card-static">
-          <el-icon color="#FF3D00" :size="20"><Warning /></el-icon>
-          <span>以下账号将在 30 天内到期：</span>
-          <el-tag v-for="account in expiringAccounts" :key="account.id" type="danger" size="small">
-            {{ account.name }} ({{ account.expire_date }})
-          </el-tag>
-        </div>
+    <div class="table-card card-static">
+      <el-table :data="filteredAccounts" v-loading="loading" empty-text="暂无抓取账号">
+        <el-table-column prop="display_name" label="账号名称" min-width="180" />
+        <el-table-column prop="external_id" label="外部标识" min-width="180" />
+        <el-table-column label="类型" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.account_type === 'weread' ? 'success' : 'primary'">
+              {{ row.account_type === 'weread' ? '微信读书' : '公众号管理员' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="健康状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="healthTagType(row.health_status)">
+              {{ healthLabel(row.health_status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="风险状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="riskTagType(row.risk_status)">
+              {{ row.risk_status }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="过期时间" min-width="180">
+          <template #default="{ row }">{{ formatDateTime(row.expires_at) }}</template>
+        </el-table-column>
+        <el-table-column label="最后健康检查" min-width="180">
+          <template #default="{ row }">{{ formatDateTime(row.last_health_check) }}</template>
+        </el-table-column>
+        <el-table-column label="最近异常" min-width="220">
+          <template #default="{ row }">{{ row.risk_reason || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="220" fixed="right">
+          <template #default="{ row }">
+            <div v-if="canManageAccounts" class="table-actions">
+              <el-button size="small" :loading="healthLoading[row.id]" @click="handleHealthCheck(row)">健康检查</el-button>
+              <el-button size="small" @click="openAddDialog(row.account_type)">重新绑定</el-button>
+              <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            </div>
+            <span v-else class="muted-placeholder">只读</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
-        <div class="table-container card-static">
-          <el-table :data="pubAccounts" v-loading="loading" stripe>
-            <el-table-column prop="name" label="名称" width="140" />
-            <el-table-column prop="type" label="类型" width="100">
-              <template #default="{ row }">
-                <el-tag size="small">{{ row.type }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="biz" label="Biz" width="140">
-              <template #default="{ row }">
-                <span class="biz-text">{{ row.biz || '-' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="80">
-              <template #default="{ row }">
-                <StatusTag :status="row.status" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="expire_date" label="到期时间" width="120" />
-            <el-table-column prop="tier" label="Tier" width="80">
-              <template #default="{ row }">
-                <StatusTag :tier="row.tier" />
-              </template>
-            </el-table-column>
-            <el-table-column prop="score" label="Score" width="100">
-              <template #default="{ row }">
-                <el-progress
-                  :percentage="row.score || 0"
-                  :stroke-width="6"
-                  :color="getScoreColor(row.score)"
-                />
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="100" fixed="right">
-              <template #default="{ row }">
-                <el-button size="small" @click="handleRenew(row)">续期</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </el-tab-pane>
-    </el-tabs>
-
-    <el-button class="add-account-btn" type="primary" circle @click="showAddDialog = true">
-      <el-icon :size="24"><Plus /></el-icon>
-    </el-button>
-
-    <el-dialog v-model="showAddDialog" title="添加公众号账号" width="500px">
-      <el-tabs v-model="addAccountType">
-        <el-tab-pane label="WeRead" name="weread" />
-        <el-tab-pane label="公众号" name="mp" />
-      </el-tabs>
-
-      <div class="qr-placeholder">
-        <div class="qr-box">
-          <el-icon :size="64" color="#ccc"><Picture /></el-icon>
-          <p>请扫描二维码添加账号</p>
-        </div>
+    <el-dialog v-model="showAddDialog" title="绑定抓取账号" width="460px" :close-on-click-modal="false" @closed="resetDialog">
+      <div v-if="!qrTicket" class="add-type-select">
+        <el-radio-group v-model="selectedType">
+          <el-radio-button label="weread">微信读书</el-radio-button>
+          <el-radio-button label="mp_admin">公众号管理员</el-radio-button>
+        </el-radio-group>
+        <p class="dialog-help">生成二维码后，请用对应账号扫码确认，成功后系统会自动绑定。</p>
+        <el-button type="primary" @click="createQRCode">生成二维码</el-button>
       </div>
+
+      <div v-else class="qr-state">
+        <img :src="qrUrl" alt="二维码" class="qr-image">
+        <el-tag :type="qrStatusTagType(qrStatus)" size="large">{{ qrStatusLabel(qrStatus) }}</el-tag>
+        <p class="dialog-help">有效期：{{ formatDateTime(qrExpireAt) }}</p>
+        <p v-if="qrMessage" class="dialog-message">{{ qrMessage }}</p>
+      </div>
+
+      <template #footer>
+        <el-button v-if="qrTicket" @click="refreshQRCode">刷新二维码</el-button>
+        <el-button @click="closeDialog">关闭</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { User, Notebook, Memo, Warning, Edit, Delete, Plus, Picture } from '@element-plus/icons-vue'
+import { CircleCheck, Connection, Monitor, Warning } from '@element-plus/icons-vue'
 import StatCard from '@/components/common/StatCard.vue'
-import StatusTag from '@/components/common/StatusTag.vue'
-import { getUsers, createUser, deleteUser } from '@/api/users'
+import { usePermissions } from '@/composables/usePermissions'
+import {
+  cancelCollectorQRLogin,
+  deleteCollectorAccount,
+  generateCollectorQRCode,
+  getCollectorAccounts,
+  getCollectorQRStatus,
+  healthCheckCollectorAccount
+} from '@/api/collectorAccounts'
+const { canManageAccounts } = usePermissions()
 
-const activeTab = ref('users')
 const loading = ref(false)
+const accounts = ref([])
+const filterType = ref('')
+const filterHealth = ref('')
+const healthLoading = ref({})
+
 const showAddDialog = ref(false)
-const addAccountType = ref('weread')
-const users = ref([])
-const pubAccounts = ref([])
-const expiringAccounts = ref([])
-const stats = ref({
-  totalUsers: 0,
-  wereadAccounts: 0,
-  mpAccounts: 0,
-  expiringSoon: 0
+const selectedType = ref('mp_admin')
+const qrTicket = ref('')
+const qrUrl = ref('')
+const qrStatus = ref('waiting')
+const qrExpireAt = ref('')
+const qrMessage = ref('')
+let pollTimer = null
+
+const filteredAccounts = computed(() => {
+  return accounts.value.filter((item) => {
+    if (filterType.value && item.account_type !== filterType.value) return false
+    if (filterHealth.value && item.health_status !== filterHealth.value) return false
+    return true
+  })
 })
 
-onMounted(async () => {
-  await fetchUsers()
-  await fetchPubAccounts()
-})
+const healthyCount = computed(() => accounts.value.filter((item) => item.health_status === 'normal').length)
+const expiringSoonCount = computed(() => accounts.value.filter((item) => daysUntil(item.expires_at) !== null && daysUntil(item.expires_at) <= 2).length)
+const failureCount = computed(() => accounts.value.filter((item) => item.last_failure_at).length)
 
-async function fetchUsers() {
+onMounted(loadAccounts)
+onBeforeUnmount(stopPolling)
+
+async function loadAccounts() {
   loading.value = true
   try {
-    const response = await getUsers()
-    users.value = response.data || []
-    stats.value.totalUsers = users.value.length
+    const response = await getCollectorAccounts()
+    accounts.value = response.data?.items || []
   } catch (error) {
-    console.error('Failed to fetch users:', error)
-    ElMessage.error('获取用户列表失败')
+    ElMessage.error(error?.response?.data?.detail || error?.response?.data?.error || '抓取账号列表加载失败')
   } finally {
     loading.value = false
   }
 }
 
-async function fetchPubAccounts() {
-  // Mock data for demo
-  pubAccounts.value = [
-    { id: 1, name: '科技每日推送', type: 'WeRead', biz: 'tech_daily', status: 'active', expire_date: '2026-05-01', tier: 'S', score: 95 },
-    { id: 2, name: '财经观察', type: 'MP', biz: 'finance_view', status: 'active', expire_date: '2026-04-20', tier: 'A', score: 78 },
-    { id: 3, name: '生活小技巧', type: 'WeRead', biz: 'life_tips', status: 'inactive', expire_date: '2026-06-15', tier: 'B', score: 62 }
-  ]
-
-  const thirtyDaysFromNow = new Date()
-  thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
-
-  expiringAccounts.value = pubAccounts.value.filter(a => {
-    const expireDate = new Date(a.expire_date)
-    return expireDate <= thirtyDaysFromNow && expireDate > new Date()
-  })
-
-  stats.value.expiringSoon = expiringAccounts.value.length
-  stats.value.wereadAccounts = pubAccounts.value.filter(a => a.type === 'WeRead').length
-  stats.value.mpAccounts = pubAccounts.value.filter(a => a.type === 'MP').length
-}
-
-async function handleEditUser(user) {
-  // Open edit dialog
-}
-
-async function handleDeleteUser(user) {
+async function handleHealthCheck(account) {
+  healthLoading.value = { ...healthLoading.value, [account.id]: true }
   try {
-    await ElMessageBox.confirm('确定删除该用户吗？', '警告', { type: 'warning' })
-    await deleteUser(user.id)
-    ElMessage.success('删除成功')
-    fetchUsers()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
+    const response = await healthCheckCollectorAccount(account.id)
+    accounts.value = accounts.value.map((item) => (item.id === account.id ? response.data : item))
+    ElMessage.success(`健康检查完成：${healthLabel(response.data.health_status)}`)
+  } finally {
+    healthLoading.value = { ...healthLoading.value, [account.id]: false }
   }
 }
 
-async function handleRenew(account) {
-  ElMessage.success('续期成功')
+async function handleDelete(account) {
+  await ElMessageBox.confirm(`确定删除抓取账号“${account.display_name}”吗？`, '删除确认', { type: 'warning' })
+  await deleteCollectorAccount(account.id)
+  ElMessage.success('抓取账号已删除')
+  await loadAccounts()
 }
 
-function formatDateTime(date) {
-  return new Date(date).toLocaleString('zh-CN')
+function openAddDialog(type = 'mp_admin') {
+  selectedType.value = type
+  showAddDialog.value = true
 }
 
-function getScoreColor(score) {
-  if (score >= 80) return '#22C55E'
-  if (score >= 60) return '#FF6B00'
-  return '#FF3D00'
+async function createQRCode() {
+  try {
+    const response = await generateCollectorQRCode(selectedType.value)
+    qrTicket.value = response.data.ticket
+    qrUrl.value = response.data.qr_url
+    qrExpireAt.value = response.data.expire_at
+    qrStatus.value = 'waiting'
+    qrMessage.value = ''
+    startPolling()
+  } catch (error) {
+    qrMessage.value = error?.response?.data?.detail || error?.response?.data?.error || '二维码生成失败'
+    ElMessage.error(qrMessage.value)
+  }
+}
+
+async function refreshQRCode() {
+  if (qrTicket.value) {
+    await cancelCollectorQRLogin(qrTicket.value)
+  }
+  stopPolling()
+  qrTicket.value = ''
+  await createQRCode()
+}
+
+function closeDialog() {
+  showAddDialog.value = false
+}
+
+function resetDialog() {
+  stopPolling()
+  if (qrTicket.value) {
+    cancelCollectorQRLogin(qrTicket.value).catch(() => {})
+  }
+  qrTicket.value = ''
+  qrUrl.value = ''
+  qrExpireAt.value = ''
+  qrMessage.value = ''
+  qrStatus.value = 'waiting'
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer = window.setInterval(checkQRStatus, 3000)
+  checkQRStatus()
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    window.clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+async function checkQRStatus() {
+  if (!qrTicket.value) return
+  try {
+    const response = await getCollectorQRStatus(qrTicket.value)
+    qrStatus.value = response.data.status
+    qrMessage.value = response.data.message || ''
+    if (response.data.status === 'confirmed') {
+      ElMessage.success('抓取账号绑定成功')
+      stopPolling()
+      await loadAccounts()
+      showAddDialog.value = false
+    }
+    if (response.data.status === 'expired') {
+      stopPolling()
+    }
+  } catch (error) {
+    qrMessage.value = error?.response?.data?.detail || error?.response?.data?.error || '二维码状态查询失败'
+    stopPolling()
+  }
+}
+
+function healthTagType(status) {
+  if (status === 'normal') return 'success'
+  if (status === 'restricted') return 'warning'
+  return 'danger'
+}
+
+function healthLabel(status) {
+  const map = {
+    normal: '正常',
+    restricted: '受限',
+    expired: '已过期',
+    invalid: '不可用'
+  }
+  return map[status] || status
+}
+
+function riskTagType(status) {
+  if (status === 'normal') return 'info'
+  if (status === 'cooling') return 'warning'
+  return 'danger'
+}
+
+function qrStatusLabel(status) {
+  const map = {
+    waiting: '等待扫码',
+    scanned: '已扫码，待确认',
+    confirmed: '登录成功',
+    expired: '二维码已过期'
+  }
+  return map[status] || status
+}
+
+function qrStatusTagType(status) {
+  if (status === 'confirmed') return 'success'
+  if (status === 'scanned') return 'warning'
+  if (status === 'expired') return 'danger'
+  return 'info'
+}
+
+function formatDateTime(value) {
+  if (!value) return '-'
+  return new Date(value).toLocaleString('zh-CN')
+}
+
+function daysUntil(value) {
+  if (!value) return null
+  const diff = new Date(value).getTime() - Date.now()
+  return Math.max(0, Math.ceil(diff / (24 * 60 * 60 * 1000)))
 }
 </script>
 
 <style lang="scss" scoped>
-.user-manage {
-  .stats-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 20px;
-    margin-bottom: 24px;
+.capture-account-manage {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+
+  h2 {
+    margin: 0 0 6px;
   }
 
-  .table-container {
-    padding: 20px;
+  p {
+    margin: 0;
+    color: $color-text-secondary;
+  }
+}
+
+.muted-placeholder {
+  color: $color-text-secondary;
+}
+
+.header-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.table-card {
+  padding: 20px;
+}
+
+.add-type-select,
+.qr-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.dialog-help,
+.dialog-message {
+  margin: 0;
+  text-align: center;
+  color: $color-text-secondary;
+}
+
+.qr-image {
+  width: 220px;
+  height: 220px;
+  object-fit: contain;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 12px;
+}
+
+@media (max-width: 900px) {
+  .page-header {
+    flex-direction: column;
   }
 
-  .biz-text {
-    font-family: monospace;
-    font-size: 13px;
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
   }
+}
 
-  .expiring-warning {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+@media (max-width: 768px) {
+  .table-card {
     padding: 16px;
-    margin-bottom: 20px;
-    background: rgba(#FF3D00, 0.05);
-    border: 1px solid rgba(#FF3D00, 0.2);
-
-    span {
-      font-weight: 500;
-    }
   }
 
-  .add-account-btn {
-    position: fixed;
-    right: 40px;
-    bottom: 40px;
-    width: 56px;
-    height: 56px;
-    box-shadow: 0 4px 20px rgba($color-primary, 0.4);
-  }
-
-  .qr-placeholder {
-    display: flex;
-    justify-content: center;
-    padding: 40px;
-  }
-
-  .qr-box {
-    text-align: center;
-
-    p {
-      margin-top: 16px;
-      color: $color-text-secondary;
-    }
+  .qr-image {
+    width: 180px;
+    height: 180px;
   }
 }
 </style>

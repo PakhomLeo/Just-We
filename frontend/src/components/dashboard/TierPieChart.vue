@@ -7,7 +7,13 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { PieChart } from 'echarts/charts'
+import { LegendComponent, TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+// Register only required components for tree-shaking
+echarts.use([PieChart, LegendComponent, TooltipComponent, CanvasRenderer])
 
 const props = defineProps({
   data: {

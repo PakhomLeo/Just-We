@@ -4,8 +4,20 @@ export function useSSE(url, onMessage) {
   const eventSource = ref(null)
   const connected = ref(false)
   const error = ref(null)
+  const reconnectTimer = ref(null)
+  const manuallyDisconnected = ref(false)
+
+  function clearReconnectTimer() {
+    if (reconnectTimer.value) {
+      clearTimeout(reconnectTimer.value)
+      reconnectTimer.value = null
+    }
+  }
 
   function connect() {
+    manuallyDisconnected.value = false
+    clearReconnectTimer()
+
     if (eventSource.value) {
       eventSource.value.close()
     }
@@ -29,12 +41,20 @@ export function useSSE(url, onMessage) {
     eventSource.value.onerror = (e) => {
       connected.value = false
       error.value = e
-      // Auto reconnect after 5 seconds
-      setTimeout(connect, 5000)
+
+      if (!manuallyDisconnected.value) {
+        reconnectTimer.value = setTimeout(() => {
+          reconnectTimer.value = null
+          connect()
+        }, 5000)
+      }
     }
   }
 
   function disconnect() {
+    manuallyDisconnected.value = true
+    clearReconnectTimer()
+
     if (eventSource.value) {
       eventSource.value.close()
       eventSource.value = null

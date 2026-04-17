@@ -2,51 +2,59 @@
   <aside class="sidebar" :class="{ collapsed: appStore.sidebarCollapsed }">
     <div class="logo">
       <img src="@/assets/images/logo.svg" alt="Logo" class="logo-img">
-      <span v-if="!appStore.sidebarCollapsed" class="logo-text">WePubMonitor</span>
+      <div v-if="!appStore.sidebarCollapsed" class="logo-copy">
+        <span class="logo-text">DynamicWePubMonitor</span>
+        <span class="logo-subtext">公众号监测控制台</span>
+      </div>
     </div>
 
     <el-menu
-      :default-active="$route.name"
+      :default-active="activeMenu"
       :collapse="appStore.sidebarCollapsed"
       router
       class="sidebar-menu"
     >
-      <el-menu-item index="Dashboard">
+      <el-menu-item index="/dashboard">
         <el-icon><Odometer /></el-icon>
-        <template #title>Dashboard</template>
+        <template #title>仪表盘</template>
       </el-menu-item>
 
-      <el-menu-item index="Accounts">
+      <el-menu-item index="/capture-accounts">
         <el-icon><User /></el-icon>
-        <template #title>账号管理</template>
+        <template #title>抓取账号</template>
       </el-menu-item>
 
-      <el-menu-item index="Articles">
+      <el-menu-item index="/mp-accounts">
+        <el-icon><Monitor /></el-icon>
+        <template #title>公众号监测</template>
+      </el-menu-item>
+
+      <el-menu-item index="/articles">
         <el-icon><Document /></el-icon>
         <template #title>文章列表</template>
       </el-menu-item>
 
-      <el-menu-item index="Proxies">
+      <el-menu-item index="/proxies">
         <el-icon><Connection /></el-icon>
         <template #title>代理管理</template>
       </el-menu-item>
 
-      <el-menu-item v-if="authStore.isAdmin" index="WeightConfig">
-        <el-icon><Setting /></el-icon>
-        <template #title>权重配置</template>
-      </el-menu-item>
-
-      <el-menu-item v-if="authStore.isAdmin" index="Logs">
+      <el-menu-item v-if="authStore.isAdmin" index="/logs">
         <el-icon><Tickets /></el-icon>
-        <template #title>日志监控</template>
+        <template #title>作业与日志</template>
       </el-menu-item>
 
-      <el-menu-item v-if="authStore.isAdmin" index="Users">
+      <el-menu-item v-if="authStore.isAdmin" index="/system-users">
         <el-icon><UserFilled /></el-icon>
         <template #title>用户管理</template>
       </el-menu-item>
 
-      <el-menu-item v-if="authStore.isAdmin" index="Settings">
+      <el-menu-item v-if="authStore.isAdmin" index="/weight">
+        <el-icon><Setting /></el-icon>
+        <template #title>权重模拟</template>
+      </el-menu-item>
+
+      <el-menu-item v-if="authStore.isAdmin" index="/settings">
         <el-icon><Tools /></el-icon>
         <template #title>系统设置</template>
       </el-menu-item>
@@ -62,15 +70,23 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import {
-  Odometer, User, Document, Connection, Setting,
-  Tickets, UserFilled, Tools, ArrowLeft, ArrowRight
+  Odometer, User, UserFilled, Document, Connection, Setting,
+  Tickets, Tools, ArrowLeft, ArrowRight, Monitor
 } from '@element-plus/icons-vue'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const route = useRoute()
+
+const activeMenu = computed(() => {
+  if (route.path.startsWith('/articles/')) return '/articles'
+  return route.path
+})
 </script>
 
 <style lang="scss" scoped>
@@ -100,6 +116,12 @@ const authStore = useAuthStore()
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
+.logo-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .logo-img {
   width: 32px;
   height: 32px;
@@ -110,6 +132,12 @@ const authStore = useAuthStore()
   font-size: 18px;
   font-weight: 600;
   color: $color-primary;
+  white-space: nowrap;
+}
+
+.logo-subtext {
+  font-size: 12px;
+  color: $color-text-secondary;
   white-space: nowrap;
 }
 

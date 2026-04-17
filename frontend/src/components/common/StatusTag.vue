@@ -35,7 +35,17 @@ const tagType = computed(() => {
     active: 'success',
     inactive: 'info',
     error: 'danger',
-    pending: 'warning'
+    pending: 'warning',
+    monitoring: 'success',
+    paused: 'info',
+    risk_observed: 'warning',
+    invalid: 'danger',
+    normal: 'success',
+    restricted: 'warning',
+    expired: 'danger',
+    failed: 'danger',
+    running: 'warning',
+    success: 'success'
   }
   return statusMap[props.status] || 'info'
 })

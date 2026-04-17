@@ -33,7 +33,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     loading.value = true
     try {
       const response = await getAccounts()
-      accounts.value = response.data
+      accounts.value = response.data?.items || []
     } finally {
       loading.value = false
     }

@@ -1,6 +1,6 @@
-@import './variables';
-@import './base';
-@import './transitions';
+@use './variables' as *;
+@use './base';
+@use './transitions';
 
 // Global CSS Variables for runtime theming
 :root {

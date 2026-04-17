@@ -1,3 +1,5 @@
+@use './variables' as *;
+
 // Card hover animation
 .card-hover {
   transition: transform $transition-normal, box-shadow $transition-normal;

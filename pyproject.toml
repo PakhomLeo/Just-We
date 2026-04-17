@@ -1,0 +1,67 @@
+[project]
+name = "dynamicwepubmonitor"
+version = "0.1.0"
+description = "微信公众号智能权重监控系统"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "sqlalchemy[asyncio]>=2.0.25",
+    "asyncpg>=0.29.0",
+    "aiosqlite>=0.19.0",
+    "alembic>=1.13.1",
+    "fastapi-users>=12.1.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "redis>=5.0.1",
+    "apscheduler>=3.10.4",
+    "httpx>=0.26.0",
+    "curl_cffi>=0.5.10",
+    "pydantic-settings>=2.1.0",
+    "loguru>=0.7.2",
+    "python-multipart>=0.0.6",
+    "pillow>=10.2.0",
+    "email-validator>=2.1.0",
+    "pyqrcode>=1.2.1",
+    "beautifulsoup4>=4.12.3",
+    "lxml>=5.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.3",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.14",
+    "black>=24.1.1",
+    "mypy>=1.8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.3",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.14",
+    "black>=24.1.1",
+    "mypy>=1.8.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

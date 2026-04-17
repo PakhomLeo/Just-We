@@ -12,9 +12,27 @@ export default defineConfig({
   css: {
     preprocessorOptions: {
       scss: {
-        additionalData: `@use "@/assets/styles/variables" as *;`
+        additionalData: `@use "@/assets/styles/variables" as *;`,
+        // Suppress legacy-js-api warning from Vite/Sass compatibility
+        silenceDeprecations: ['legacy-js-api']
       }
     }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split echarts into its own chunk
+          'echarts': ['echarts'],
+          // Split element-plus into its own chunk
+          'element-plus': ['element-plus'],
+        }
+      }
+    },
+    // Enable source map for better debugging
+    sourcemap: false,
+    // Target modern browsers for smaller bundles
+    target: 'es2015',
   },
   server: {
     port: 5173,

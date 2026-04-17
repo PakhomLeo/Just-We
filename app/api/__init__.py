@@ -10,6 +10,10 @@ from app.api.tasks import router as tasks_router
 from app.api.logs import router as logs_router
 from app.api.notifications import router as notifications_router
 from app.api.users import router as users_router
+from app.api.collector_accounts import router as collector_accounts_router
+from app.api.monitored_accounts import router as monitored_accounts_router
+from app.api.fetch_jobs import router as fetch_jobs_router
+from app.api.system_config import router as system_config_router
 
 __all__ = [
     "auth_router",
@@ -22,4 +26,8 @@ __all__ = [
     "logs_router",
     "notifications_router",
     "users_router",
+    "collector_accounts_router",
+    "monitored_accounts_router",
+    "fetch_jobs_router",
+    "system_config_router",
 ]

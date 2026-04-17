@@ -36,12 +36,12 @@
         <el-tabs v-model="activeTab" class="login-tabs">
           <el-tab-pane label="登录" name="login">
             <el-form ref="loginFormRef" :model="loginForm" :rules="loginRules" label-position="top">
-              <el-form-item prop="username">
+              <el-form-item prop="email">
                 <el-input
-                  v-model="loginForm.username"
-                  placeholder="用户名"
+                  v-model="loginForm.email"
+                  placeholder="邮箱或 admin"
                   size="large"
-                  :prefix-icon="User"
+                  :prefix-icon="Message"
                 />
               </el-form-item>
 
@@ -70,15 +70,6 @@
 
           <el-tab-pane label="注册" name="register">
             <el-form ref="registerFormRef" :model="registerForm" :rules="registerRules" label-position="top">
-              <el-form-item prop="username">
-                <el-input
-                  v-model="registerForm.username"
-                  placeholder="用户名"
-                  size="large"
-                  :prefix-icon="User"
-                />
-              </el-form-item>
-
               <el-form-item prop="email">
                 <el-input
                   v-model="registerForm.email"
@@ -152,12 +143,11 @@ const loginFormRef = ref(null)
 const registerFormRef = ref(null)
 
 const loginForm = reactive({
-  username: '',
+  email: '',
   password: ''
 })
 
 const registerForm = reactive({
-  username: '',
   email: '',
   password: '',
   confirmPassword: ''
@@ -168,12 +158,13 @@ const resetForm = reactive({
 })
 
 const loginRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  email: [
+    { required: true, message: '请输入邮箱或用户名', trigger: 'blur' }
+  ],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
 const registerRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '请输入有效邮箱', trigger: 'blur' }
@@ -212,7 +203,6 @@ async function handleRegister() {
   try {
     await registerFormRef.value.validate()
     await authStore.register({
-      username: registerForm.username,
       email: registerForm.email,
       password: registerForm.password
     })
@@ -252,7 +242,7 @@ function handleReset() {
 .login-left {
   flex: 0 0 60%;
   padding: 48px;
-  background: linear-gradient(135deg, $color-bg 0%, darken($color-bg, 5%) 100%);
+  background: linear-gradient(135deg, #F8F4F0 0%, #EDE8E4 100%);
 
   .brand {
     display: flex;
@@ -339,6 +329,43 @@ function handleReset() {
     &:hover {
       text-decoration: underline;
     }
+  }
+}
+
+@media (max-width: 960px) {
+  .login-card {
+    flex-direction: column;
+  }
+
+  .login-left,
+  .login-right {
+    flex: 1 1 auto;
+    padding: 28px 24px;
+  }
+
+  .login-left .brand {
+    margin-bottom: 28px;
+  }
+}
+
+@media (max-width: 640px) {
+  .login-page {
+    padding: 12px;
+    align-items: stretch;
+  }
+
+  .login-card {
+    min-height: calc(100vh - 24px);
+    border-radius: 18px;
+  }
+
+  .login-left,
+  .login-right {
+    padding: 20px 16px;
+  }
+
+  .brand-name {
+    font-size: 20px;
   }
 }
 </style>

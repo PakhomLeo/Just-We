@@ -7,7 +7,13 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import * as echarts from 'echarts'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, GraphicComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+// Register only required components for tree-shaking to work
+echarts.use([LineChart, GridComponent, TooltipComponent, GraphicComponent, CanvasRenderer])
 
 const props = defineProps({
   data: {

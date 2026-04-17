@@ -28,8 +28,9 @@ request.interceptors.response.use(
       const authStore = useAuthStore()
       authStore.logout()
       router.push({ name: 'Login' })
+      return Promise.reject(error)
     }
-    ElMessage.error(error.response?.data?.detail || 'Request failed')
+    ElMessage.error(error.response?.data?.detail || error.response?.data?.error || 'Request failed')
     return Promise.reject(error)
   }
 )

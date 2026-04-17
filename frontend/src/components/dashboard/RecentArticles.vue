@@ -2,7 +2,7 @@
   <div class="recent-articles card-static">
     <h3 class="section-title">最近高相关文章</h3>
     <el-scrollbar max-height="280px">
-      <div v-if="articles.length === 0" class="empty-state">
+      <div v-if="!articles || articles.length === 0" class="empty-state">
         暂无文章
       </div>
       <div v-else class="article-list">
@@ -13,16 +13,16 @@
           target="_blank"
           class="article-item"
         >
-          <img v-if="article.thumbnail" :src="article.thumbnail" class="article-thumb">
+          <img v-if="article.images && article.images.length > 0" :src="article.images[0]" class="article-thumb">
           <div class="article-info">
             <p class="article-title">{{ article.title }}</p>
             <p class="article-meta">
-              <span>{{ article.account_name }}</span>
-              <span>{{ formatDate(article.publish_time) }}</span>
+              <span>公众号 {{ article.account_name || article.account_id }}</span>
+              <span>{{ formatDate(article.published_at) }}</span>
             </p>
           </div>
-          <el-tag v-if="article.ai_ratio > 0.5" type="warning" size="small">
-            AI {{ Math.round(article.ai_ratio * 100) }}%
+          <el-tag v-if="article.ai_relevance_ratio && article.ai_relevance_ratio > 0.5" type="warning" size="small">
+            AI {{ Math.round(article.ai_relevance_ratio * 100) }}%
           </el-tag>
         </a>
       </div>
@@ -39,6 +39,7 @@ defineProps({
 })
 
 function formatDate(date) {
+  if (!date) return '-'
   return new Date(date).toLocaleDateString('zh-CN')
 }
 </script>

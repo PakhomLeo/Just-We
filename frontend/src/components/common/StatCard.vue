@@ -17,8 +17,8 @@ import { computed, ref, watch } from 'vue'
 
 const props = defineProps({
   label: String,
-  value: Number,
-  icon: String,
+  value: [Number, String],
+  icon: [String, Object],
   iconColor: {
     type: String,
     default: '#FF6B00'
@@ -34,10 +34,17 @@ const props = defineProps({
 })
 
 const displayValue = ref(0)
+const isStringValue = ref(false)
 
 watch(() => props.value, (newVal) => {
-  if (newVal !== displayValue.value) {
-    animateValue(newVal)
+  if (typeof newVal === 'string') {
+    isStringValue.value = true
+    displayValue.value = newVal
+  } else {
+    isStringValue.value = false
+    if (newVal !== displayValue.value) {
+      animateValue(newVal)
+    }
   }
 }, { immediate: true })
 

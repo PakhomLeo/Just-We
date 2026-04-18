@@ -70,17 +70,42 @@ class FetchPipelineService:
 
     async def _select_collector(self, monitored_account):
         policy = await self.system_config_service.get_or_create_fetch_policy()
-        fetch_mode = CollectorAccountType(policy.primary_modes.get(str(monitored_account.current_tier), monitored_account.primary_fetch_mode.value))
-        if monitored_account.primary_fetch_mode != fetch_mode or monitored_account.fallback_fetch_mode is not None:
+        policy_mode = CollectorAccountType(
+            policy.primary_modes.get(str(monitored_account.current_tier), monitored_account.primary_fetch_mode.value)
+        )
+        metadata = monitored_account.metadata_json or {}
+        is_weread_platform_account = (
+            metadata.get("resolve_source") == "weread_platform"
+            or bool(metadata.get("weread_platform_mp_id"))
+        )
+        candidate_modes = (
+            [monitored_account.primary_fetch_mode, policy_mode, monitored_account.fallback_fetch_mode]
+            if is_weread_platform_account
+            else [policy_mode, monitored_account.primary_fetch_mode, monitored_account.fallback_fetch_mode]
+        )
+        seen_modes: set[CollectorAccountType] = set()
+        for fetch_mode in candidate_modes:
+            if fetch_mode is None or fetch_mode in seen_modes:
+                continue
+            seen_modes.add(fetch_mode)
+            accounts = await self.collector_service.repo.get_by_owner_and_type(monitored_account.owner_user_id, fetch_mode)
+            healthy = [a for a in accounts if self.collector_service.is_available_for_fetch(a)]
+            if healthy:
+                if monitored_account.primary_fetch_mode != fetch_mode or monitored_account.fallback_fetch_mode is not None:
+                    await self.monitored_repo.update(
+                        monitored_account,
+                        primary_fetch_mode=fetch_mode,
+                        fallback_fetch_mode=None,
+                    )
+                return healthy[0]
+        if not is_weread_platform_account and (
+            monitored_account.primary_fetch_mode != policy_mode or monitored_account.fallback_fetch_mode is not None
+        ):
             await self.monitored_repo.update(
                 monitored_account,
-                primary_fetch_mode=fetch_mode,
+                primary_fetch_mode=policy_mode,
                 fallback_fetch_mode=None,
             )
-        accounts = await self.collector_service.repo.get_by_owner_and_type(monitored_account.owner_user_id, fetch_mode)
-        healthy = [a for a in accounts if self.collector_service.is_available_for_fetch(a)]
-        if healthy:
-            return healthy[0]
         return None
 
     async def _run_update_list_stage(self, monitored, collector) -> list:
@@ -306,6 +331,12 @@ class FetchPipelineService:
             next_run_at = self._schedule_monitored_account(monitored.id, weight_update["new_tier"])
             policy = await self.system_config_service.get_or_create_fetch_policy()
             next_fetch_mode = CollectorAccountType(policy.primary_modes.get(str(weight_update["new_tier"]), collector.account_type.value))
+            metadata = monitored.metadata_json or {}
+            if (
+                metadata.get("resolve_source") == "weread_platform"
+                or bool(metadata.get("weread_platform_mp_id"))
+            ):
+                next_fetch_mode = collector.account_type
             monitored = await self.monitored_repo.update(
                 monitored,
                 current_tier=weight_update["new_tier"],

@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.exceptions import FetchFailedException
+from app.core.exceptions import FetchFailedException, ProxyNotAvailableException
 from app.models.collector_account import CollectorAccount, CollectorAccountType
 from app.models.monitored_account import MonitoredAccount
 from app.models.proxy import Proxy, ProxyServiceKey
@@ -130,6 +130,8 @@ class BaseChannelFetcher:
         return None
 
     def _append_credential_token(self, url: str, collector_account: CollectorAccount) -> str:
+        if collector_account.account_type != CollectorAccountType.MP_ADMIN:
+            return url
         token = (collector_account.credentials or {}).get("token")
         if not token or "token=" in url:
             return url
@@ -151,22 +153,35 @@ class BaseChannelFetcher:
         }.get(collector_account.account_type, ProxyServiceKey.MP_DETAIL)
         proxies = await ProxyService(self.db).get_proxy_pool_for_service_key(service_type)
         if not proxies:
-            raise FetchFailedException(
-                getattr(collector_account, "id", 0) or 0,
-                f"Proxy pool exhausted for {service_type.value}",
-                category=FETCH_CATEGORY_CONFIGURATION,
-                retryable=False,
-            )
+            return [(None, None)]
         candidates: list[tuple[Proxy | None, str | None]] = [(proxy, proxy.proxy_url) for proxy in proxies]
+        candidates.append((None, None))
         return candidates
+
+    async def _fetch_document_with_httpx(
+        self,
+        url: str,
+        headers: dict[str, str],
+        proxy_url: str | None,
+    ) -> DetailDocumentResponse:
+        timeout = httpx.Timeout(20.0, read=10.0)
+        async with httpx.AsyncClient(timeout=timeout, proxy=proxy_url, follow_redirects=True) as client:
+            response = await client.get(url, headers=headers)
+            return DetailDocumentResponse(
+                status_code=response.status_code,
+                text=response.text,
+                final_url=str(response.url),
+                headers={key.lower(): value for key, value in response.headers.items()},
+            )
 
     async def _fetch_document(
         self,
         url: str,
         headers: dict[str, str],
         proxy_url: str | None,
+        prefer_curl: bool = True,
     ) -> DetailDocumentResponse:
-        if HAS_CURL_CFFI:
+        if prefer_curl and HAS_CURL_CFFI:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(
                 DETAIL_FETCH_EXECUTOR,
@@ -176,14 +191,7 @@ class BaseChannelFetcher:
                 proxy_url,
             )
 
-        async with self._build_client(proxy_url) as client:
-            response = await client.get(url, headers=headers)
-            return DetailDocumentResponse(
-                status_code=response.status_code,
-                text=response.text,
-                final_url=str(response.url),
-                headers={key.lower(): value for key, value in response.headers.items()},
-            )
+        return await self._fetch_document_with_httpx(url, headers, proxy_url)
 
     def _fetch_document_with_curl(
         self,
@@ -391,7 +399,12 @@ class BaseChannelFetcher:
 
         for proxy_model, candidate_proxy_url in await self._detail_proxy_candidates(collector_account, proxy_url):
             try:
-                response = await self._fetch_document(full_url, headers, candidate_proxy_url)
+                response = await self._fetch_document(
+                    full_url,
+                    headers,
+                    candidate_proxy_url,
+                    prefer_curl=collector_account.account_type != CollectorAccountType.WEREAD,
+                )
                 if response.status_code >= 400:
                     category = self._classify_http_error(response.status_code, response.text)
                     raise FetchFailedException(
@@ -448,6 +461,9 @@ class WeReadFetcher(BaseChannelFetcher):
 
     def _platform_mp_id(self, monitored_account: MonitoredAccount) -> str | None:
         metadata = monitored_account.metadata_json or {}
+        platform_id = metadata.get("weread_platform_mp_id") if isinstance(metadata, dict) else None
+        if platform_id:
+            return str(platform_id)
         raw = metadata.get("raw") if isinstance(metadata, dict) else None
         if isinstance(raw, dict):
             for container in [raw, raw.get("weread_platform") if isinstance(raw.get("weread_platform"), dict) else None]:
@@ -481,13 +497,54 @@ class WeReadFetcher(BaseChannelFetcher):
                 ArticleUpdate(
                     title=item.get("title") or monitored_account.name,
                     url=self._normalize_wechat_url(url, monitored_account.source_url),
-                    published_at=item.get("published_at") or item.get("publish_time") or item.get("update_time"),
-                    cover_image=item.get("cover") or item.get("cover_image") or item.get("pic_url"),
+                    published_at=(
+                        item.get("published_at")
+                        or item.get("publish_time")
+                        or item.get("publishTime")
+                        or item.get("update_time")
+                        or item.get("updateTime")
+                    ),
+                    cover_image=(
+                        item.get("cover")
+                        or item.get("cover_image")
+                        or item.get("pic_url")
+                        or item.get("picUrl")
+                    ),
                     author=item.get("author") or item.get("source"),
                     source_payload={"channel": "weread_platform", **item},
                 )
             )
         return updates
+
+    def _platform_auth_headers(self, collector_account: CollectorAccount, base_url: str) -> dict[str, str]:
+        headers = self._build_headers(referer=base_url)
+        token = (collector_account.credentials or {}).get("token")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        xid = (collector_account.credentials or {}).get("vid") or collector_account.external_id
+        if xid:
+            headers["xid"] = str(xid)
+        return headers
+
+    def _extract_platform_mp_id(self, payload: Any) -> str | None:
+        if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
+            payload = payload["data"]
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        if isinstance(payload, dict) and isinstance(payload.get("list"), list):
+            payload = payload["list"][0] if payload["list"] else {}
+        if not isinstance(payload, dict):
+            return None
+        value = (
+            payload.get("id")
+            or payload.get("mpId")
+            or payload.get("mp_id")
+            or payload.get("fakeid")
+            or payload.get("fakeId")
+            or payload.get("biz")
+            or payload.get("__biz")
+        )
+        return str(value) if value else None
 
     async def _fetch_platform_articles(
         self,
@@ -502,12 +559,30 @@ class WeReadFetcher(BaseChannelFetcher):
         if not base_url and (collector_account.metadata_json or {}).get("provider") == "weread_platform":
             base_url = (settings.weread_platform_url or "").rstrip("/")
         mp_id = self._platform_mp_id(monitored_account)
-        token = collector_account.credentials.get("token")
+        token = (collector_account.credentials or {}).get("token")
         if not base_url or not mp_id or not token:
-            return []
-        headers = self._build_headers(referer=base_url)
-        headers["Authorization"] = f"Bearer {token}"
+            if not base_url or not token:
+                return []
+        headers = self._platform_auth_headers(collector_account, base_url)
         async with self._build_client(proxy_url) as client:
+            if not mp_id:
+                resolve_response = await client.post(
+                    f"{base_url}/api/v2/platform/wxs2mp",
+                    json={"url": monitored_account.source_url},
+                    headers=headers,
+                )
+                if resolve_response.status_code in {401, 403}:
+                    raise FetchFailedException(
+                        monitored_account.id,
+                        "WeRead platform token is invalid",
+                        category=FETCH_CATEGORY_CREDENTIALS,
+                        retryable=False,
+                    )
+                if resolve_response.status_code >= 400:
+                    return []
+                mp_id = self._extract_platform_mp_id(resolve_response.json())
+                if not mp_id:
+                    return []
             response = await client.get(
                 f"{base_url}/api/v2/platform/mps/{mp_id}/articles",
                 params={"page": int((monitored_account.strategy_config or {}).get("weread_page", 1))},
@@ -529,7 +604,9 @@ class WeReadFetcher(BaseChannelFetcher):
                 )
             if response.status_code >= 400:
                 return []
-            return self._parse_platform_articles(response.json(), monitored_account)
+            updates = self._parse_platform_articles(response.json(), monitored_account)
+            max_items = int((monitored_account.strategy_config or {}).get("weread_max_items", 1))
+            return updates[:max(max_items, 1)]
 
     def _build_history_urls(self, monitored_account: MonitoredAccount) -> list[str]:
         urls = [monitored_account.source_url]
@@ -543,6 +620,13 @@ class WeReadFetcher(BaseChannelFetcher):
             urls.append(f"https://mp.weixin.qq.com/mp/profile_ext?action=home&fakeid={quote(str(fakeid))}")
         # de-duplicate while preserving order
         return list(dict.fromkeys(urls))
+
+    def _is_source_article_url(self, source_url: str) -> bool:
+        parsed = urlparse(source_url)
+        if "mp.weixin.qq.com" not in parsed.netloc:
+            return False
+        query = parse_qs(parsed.query)
+        return parsed.path.startswith("/s/") or bool(query.get("mid") and query.get("sn"))
 
     def _parse_wechat_public_page(self, raw_html: str, monitored_account: MonitoredAccount) -> list[ArticleUpdate]:
         updates: list[ArticleUpdate] = []
@@ -620,6 +704,20 @@ class WeReadFetcher(BaseChannelFetcher):
             platform_updates = await self._fetch_platform_articles(monitored_account, collector_account, proxy_url)
             if platform_updates:
                 return platform_updates
+            if self._is_source_article_url(monitored_account.source_url):
+                return [
+                    ArticleUpdate(
+                        title=f"{monitored_account.name} 原始文章",
+                        url=monitored_account.source_url,
+                        published_at=None,
+                        cover_image=monitored_account.avatar_url,
+                        author=monitored_account.name,
+                        source_payload={
+                            "channel": "weread_source_article",
+                            "seed_url": monitored_account.source_url,
+                        },
+                    )
+                ]
             async with self._build_client(proxy_url) as client:
                 for url in urls:
                     response = await client.get(url, headers=headers, cookies=cookies)
@@ -845,8 +943,11 @@ class FetcherService:
             CollectorAccountType.WEREAD: ProxyServiceKey.WEREAD_LIST,
             CollectorAccountType.MP_ADMIN: ProxyServiceKey.MP_LIST,
         }
-        proxy_model = await self.proxy_service.select_proxy(mapping[mode])
-        return proxy_model.proxy_url
+        try:
+            proxy_model = await self.proxy_service.select_proxy(mapping[mode])
+            return proxy_model.proxy_url
+        except ProxyNotAvailableException:
+            return None
 
     async def get_detail_proxy_for_mode(self, mode: CollectorAccountType) -> str | None:
         mapping = {

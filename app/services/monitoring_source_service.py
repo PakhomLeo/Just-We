@@ -7,7 +7,12 @@ import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.collector_account import CollectorAccountStatus, CollectorAccountType, CollectorHealthStatus
+from app.models.collector_account import (
+    CollectorAccount,
+    CollectorAccountStatus,
+    CollectorAccountType,
+    CollectorHealthStatus,
+)
 from app.models.monitored_account import MonitoredAccount
 from app.repositories.collector_account_repo import CollectorAccountRepository
 from app.repositories.monitored_account_repo import MonitoredAccountRepository
@@ -58,28 +63,80 @@ class MonitoringSourceService:
             "sn": (query.get("sn") or [None])[0],
         }
 
-    async def resolve_with_weread_platform(self, source_url: str) -> dict:
+    async def _select_weread_platform_collector(self, owner_user_id) -> CollectorAccount | None:
+        accounts = await self.collector_repo.get_by_owner_and_type(owner_user_id, CollectorAccountType.WEREAD)
+        for account in accounts:
+            if (
+                account.status == CollectorAccountStatus.ACTIVE
+                and account.health_status == CollectorHealthStatus.NORMAL
+                and (account.credentials or {}).get("token")
+            ):
+                return account
+        return None
+
+    def _weread_platform_headers(self, collector: CollectorAccount | None) -> dict[str, str]:
+        if collector is None:
+            return {}
+        credentials = collector.credentials or {}
+        token = credentials.get("token")
+        if not token:
+            return {}
+        headers = {"Authorization": f"Bearer {token}"}
+        xid = credentials.get("vid") or collector.external_id
+        if xid:
+            headers["xid"] = str(xid)
+        return headers
+
+    def _normalize_weread_platform_payload(self, payload) -> dict:
+        if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
+            payload = payload["data"]
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        if isinstance(payload, dict) and isinstance(payload.get("list"), list):
+            payload = payload["list"][0] if payload["list"] else {}
+        return payload if isinstance(payload, dict) else {}
+
+    async def resolve_with_weread_platform(
+        self,
+        source_url: str,
+        owner_user_id=None,
+        collector: CollectorAccount | None = None,
+    ) -> dict:
         """Resolve MP metadata via the WeRead-compatible platform when configured."""
         settings = get_settings()
         base_url = (settings.weread_platform_url or "").rstrip("/")
         if not base_url:
             return {}
+        if collector is None and owner_user_id is not None:
+            collector = await self._select_weread_platform_collector(owner_user_id)
+        headers = self._weread_platform_headers(collector)
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(f"{base_url}/api/v2/platform/wxs2mp", json={"url": source_url})
+                response = await client.post(
+                    f"{base_url}/api/v2/platform/wxs2mp",
+                    json={"url": source_url},
+                    headers=headers,
+                )
                 response.raise_for_status()
                 payload = response.json()
         except Exception:
             return {}
-        if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
-            payload = payload["data"]
-        if not isinstance(payload, dict):
+        payload = self._normalize_weread_platform_payload(payload)
+        if not payload:
             return {}
+        platform_mp_id = (
+            payload.get("id")
+            or payload.get("mpId")
+            or payload.get("mp_id")
+            or payload.get("fakeid")
+            or payload.get("fakeId")
+        )
         return {
-            "biz": payload.get("biz") or payload.get("__biz") or payload.get("mpBiz"),
-            "fakeid": payload.get("fakeid") or payload.get("fakeId"),
+            "biz": payload.get("biz") or payload.get("__biz") or payload.get("mpBiz") or platform_mp_id,
+            "fakeid": payload.get("fakeid") or payload.get("fakeId") or platform_mp_id,
+            "platform_mp_id": platform_mp_id,
             "name": payload.get("nickname") or payload.get("name") or payload.get("title"),
-            "avatar_url": payload.get("avatar") or payload.get("avatar_url") or payload.get("headImg"),
+            "avatar_url": payload.get("avatar") or payload.get("avatar_url") or payload.get("headImg") or payload.get("cover"),
             "mp_intro": payload.get("intro") or payload.get("description") or payload.get("signature"),
             "raw": payload,
             "resolve_source": "weread_platform",
@@ -141,7 +198,7 @@ class MonitoringSourceService:
 
     async def create_from_url(self, owner_user_id, source_url: str, name: str | None = None, fakeid: str | None = None):
         parsed = self.parse_source_url(source_url)
-        resolved = await self.resolve_with_weread_platform(source_url)
+        resolved = await self.resolve_with_weread_platform(source_url, owner_user_id=owner_user_id)
         if not resolved.get("fakeid"):
             fallback = await self.resolve_with_mp_admin_searchbiz(owner_user_id, name or resolved.get("name"))
             if fallback:
@@ -159,6 +216,8 @@ class MonitoringSourceService:
         policy = await self.system_config_service.get_or_create_fetch_policy()
         default_tier = 3
         fetch_mode = CollectorAccountType(policy.primary_modes.get(str(default_tier), "mp_admin"))
+        if resolved.get("resolve_source") == "weread_platform" and resolved.get("platform_mp_id"):
+            fetch_mode = CollectorAccountType.WEREAD
 
         resolved_fakeid = fakeid or resolved.get("fakeid")
         capabilities = {
@@ -169,6 +228,7 @@ class MonitoringSourceService:
         metadata = {
             "raw": resolved.get("raw") if resolved else None,
             "resolve_source": resolved.get("resolve_source") if resolved else None,
+            "weread_platform_mp_id": resolved.get("platform_mp_id") if resolved else None,
             "resolve_error": None if resolved_fakeid else "fakeid_unavailable",
             "capabilities": capabilities,
         }

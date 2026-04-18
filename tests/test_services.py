@@ -693,7 +693,7 @@ class TestFetcherService:
         )
         await test_db.refresh(proxy)
 
-        async def fake_fetch_document(url, headers, proxy_url):
+        async def fake_fetch_document(url, headers, proxy_url, prefer_curl=True):
             return DetailDocumentResponse(
                 status_code=200,
                 text="<html>wappoc_appmsgcaptcha poc_token 安全验证</html>",
@@ -743,7 +743,7 @@ class TestFetcherService:
         )
         calls = []
 
-        async def fake_fetch_document(url, headers, proxy_url):
+        async def fake_fetch_document(url, headers, proxy_url, prefer_curl=True):
             calls.append((url, headers, proxy_url))
             if proxy_url == first_proxy.proxy_url:
                 return DetailDocumentResponse(
@@ -820,7 +820,7 @@ class TestFetcherService:
             biz="biz123",
             fakeid="fakeid123",
             name="Weread Feed",
-            source_url="https://mp.weixin.qq.com/s/source?__biz=biz123",
+            source_url="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=biz123",
             current_tier=2,
             composite_score=50.0,
             primary_fetch_mode=CollectorAccountType.WEREAD,
@@ -882,7 +882,119 @@ class TestFetcherService:
         assert updates[0].title == "文章一"
         assert updates[1].title == "文章二"
         assert updates[0].source_payload["channel"] == "weread"
-        assert client.calls[0][0].startswith("https://mp.weixin.qq.com/s/source")
+        assert client.calls[0][0].startswith("https://mp.weixin.qq.com/mp/profile_ext")
+
+    @pytest.mark.asyncio
+    async def test_weread_fetcher_uses_source_article_before_history_page(self, test_db: AsyncSession):
+        """Article-link monitors should fetch the seed article instead of parsing article anchors as history."""
+        fetcher = FetcherService(test_db)
+        owner_user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        monitored = MonitoredAccount(
+            owner_user_id=owner_user_id,
+            biz="MP_WXS_1",
+            fakeid="MP_WXS_1",
+            name="Weread Article",
+            source_url="https://mp.weixin.qq.com/s/source-id",
+            current_tier=2,
+            composite_score=50.0,
+            primary_fetch_mode=CollectorAccountType.WEREAD,
+            fallback_fetch_mode=None,
+            status=MonitoredAccountStatus.MONITORING,
+            update_history={},
+            ai_relevance_history={},
+            strategy_config={},
+        )
+        collector = CollectorAccount(
+            owner_user_id=owner_user_id,
+            account_type=CollectorAccountType.WEREAD,
+            display_name="Weread Collector",
+            credentials={"token": "token123"},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={"provider": "weread_platform", "platform_url": "https://platform.example.com"},
+        )
+
+        fetcher.weread_fetcher._fetch_platform_articles = AsyncMock(return_value=[])
+        fetcher.weread_fetcher._build_client = MagicMock(side_effect=AssertionError("history page should not be fetched"))
+        fetcher.weread_fetcher._sleep_with_policy = AsyncMock()
+
+        updates = await fetcher.weread_fetcher.fetch_updates(monitored, collector, None)
+
+        assert len(updates) == 1
+        assert updates[0].url == monitored.source_url
+        assert updates[0].source_payload["channel"] == "weread_source_article"
+
+    def test_weread_platform_articles_support_real_payload_shape(self):
+        """WeRead platform article payloads use camelCase fields and can be larger than one run should process."""
+        fetcher = FetcherService(MagicMock())
+        monitored = MonitoredAccount(
+            owner_user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            biz="MP_WXS_1",
+            fakeid="MP_WXS_1",
+            name="Weread Feed",
+            source_url="https://mp.weixin.qq.com/s/source",
+            current_tier=2,
+            composite_score=50.0,
+            primary_fetch_mode=CollectorAccountType.WEREAD,
+            fallback_fetch_mode=None,
+            status=MonitoredAccountStatus.MONITORING,
+            update_history={},
+            ai_relevance_history={},
+            strategy_config={},
+        )
+
+        updates = fetcher.weread_fetcher._parse_platform_articles(
+            [
+                {
+                    "title": "A",
+                    "url": "https://mp.weixin.qq.com/s/a",
+                    "picUrl": "https://mmbiz.qpic.cn/a.jpg",
+                    "publishTime": 1710000000,
+                }
+            ],
+            monitored,
+        )
+
+        assert updates[0].published_at == 1710000000
+        assert updates[0].cover_image == "https://mmbiz.qpic.cn/a.jpg"
+
+    @pytest.mark.asyncio
+    async def test_weread_detail_uses_direct_httpx_and_does_not_leak_token(self, test_db: AsyncSession):
+        """WeRead platform bearer tokens must not be appended to mp.weixin.qq.com article URLs."""
+        fetcher = FetcherService(test_db)
+        collector = CollectorAccount(
+            owner_user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            account_type=CollectorAccountType.WEREAD,
+            display_name="Weread Collector",
+            credentials={"token": "platform-token"},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={"provider": "weread_platform"},
+        )
+        calls = []
+
+        async def fake_fetch_document(url, headers, proxy_url, prefer_curl=True):
+            calls.append((url, prefer_curl))
+            return DetailDocumentResponse(
+                status_code=200,
+                text=(
+                    "<html><head><meta property=\"og:title\" content=\"OK\" />"
+                    "<meta property=\"og:image\" content=\"https://cdn.example.com/a.jpg\" /></head>"
+                    "<body><div id=\"js_content\">article</div></body></html>"
+                ),
+                final_url=url,
+                headers={},
+            )
+
+        fetcher.weread_fetcher._fetch_document = fake_fetch_document
+        fetcher.weread_fetcher._sleep_with_policy = AsyncMock()
+
+        detail = await fetcher.weread_fetcher.fetch_article_detail("https://mp.weixin.qq.com/s/test", collector, None)
+
+        assert detail["title"] == "OK"
+        assert calls == [("https://mp.weixin.qq.com/s/test", False)]
 
 
 class TestFetchPipelineService:

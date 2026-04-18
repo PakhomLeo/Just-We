@@ -223,6 +223,7 @@ class CollectorAccountService:
             cool_until=None,
             last_error_category=None,
             status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
         )
 
     async def update_discovered_profile(

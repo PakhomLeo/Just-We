@@ -137,6 +137,10 @@ class ArticleAIAnalysisService:
     ) -> dict[str, Any]:
         if not api_config["enabled"]:
             raise AIAnalysisException(0, "AI stage is disabled")
+        api_url = str(api_config.get("api_url") or "")
+        api_key = str(api_config.get("api_key") or "")
+        if not api_key or "api.example.com" in api_url:
+            raise AIAnalysisException(0, "AI API is not configured")
         if self.mock_mode:
             return {"choices": [{"message": {"content": json.dumps({"mock": True, "summary": prompt[:120]}, ensure_ascii=False)}}]}
 

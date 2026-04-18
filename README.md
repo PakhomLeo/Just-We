@@ -1,181 +1,182 @@
 # Just-We
 
-面向微信公众号内容监测的前后端一体平台。
+[![CI](https://github.com/PakhomLeo/dynamicwepubmonitor/actions/workflows/ci.yml/badge.svg)](https://github.com/PakhomLeo/dynamicwepubmonitor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-项目支持平台用户登录、抓取账号绑定、公众号监测源管理、自动调度抓取、文章图片本地化、AI 内容分析、账号健康检查和站内/邮件告警。当前代码已经清理掉旧的遗留页面与接口，只保留现行的 `collector_accounts + monitored_accounts` 主流程。
+Just-We is a FastAPI and Vue 3 platform for monitoring WeChat Official Account
+content. It manages collector accounts, monitored accounts, article collection,
+localized media, AI relevance analysis, exports, Feed access, rate limits,
+proxies, task logs, and system administration from one web console.
 
-## 功能概览
+The project is designed for self-hosted operation. The fastest production-like
+path is the Docker Compose deployment, which starts the app, PostgreSQL, and
+Redis with one command.
 
-- 平台用户登录与角色权限：`admin` / `operator` / `viewer`
-- 抓取账号管理：
-  - 公众号后台二维码登录
-  - WeRead 外部平台二维码接入
-  - 定时健康检查、失效检测、即将过期提醒
-- 公众号监测：
-  - 从文章链接解析 `biz` / `fakeid`
-  - 为不同用户分别创建自己的监测对象
-  - Tier 分层、抓取策略调整、手动触发抓取
-- 抓取链路：
-  - 自动调度活跃监测对象
-  - 按 Tier 映射唯一抓取方式
-  - 文章正文抓取、图片本地化保存
-- AI 与告警：
-  - 可配置外部 AI API
-  - 高相关命中、连续低相关、抓取失败、账号失效等通知
-  - SMTP 邮件外发
-- 管理后台：
-  - 仪表盘
-  - 抓取账号页
-  - 公众号监测页
-  - 文章库与详情
-  - 作业与审计日志
-  - 代理管理
-  - 系统设置
+## Features
 
-## 技术栈
+- User authentication and role-based access for `admin`, `operator`, and
+  `viewer`.
+- Collector account management with QR-login flows, health checks, expiry
+  detection, and failure states.
+- Monitored account management with `biz` / `fakeid` parsing, owner isolation,
+  tiering, scheduling strategy, and manual fetch triggers.
+- Article collection with rich content, media localization, detail pages,
+  export workflows, and Feed tokens.
+- AI analysis, configurable provider settings, relevance thresholds, and
+  notification hooks.
+- Proxy, rate-limit, weight configuration, task log, audit log, system user, and
+  system setting pages.
+- Single-container web serving for production builds, including SPA deep-link
+  refresh support.
 
-- Backend: FastAPI, SQLAlchemy Async, Alembic, Redis, APScheduler
-- Frontend: Vue 3, Vite, Element Plus, Pinia
-- Database: PostgreSQL
-
-## 项目结构
+## Architecture
 
 ```text
-app/         FastAPI 应用、模型、服务、任务
-frontend/    Vue 3 管理后台
-alembic/     数据库迁移
-tests/       后端测试
-docs/        需求与项目文档
+app/         FastAPI application, API routers, services, repositories, tasks
+alembic/     PostgreSQL migration chain
+frontend/    Vue 3, Vite, Element Plus, Pinia admin console
+tests/       Backend regression tests
+docs/        Deployment, configuration, and project reference documentation
 ```
 
-## 快速开始
+Runtime dependencies:
 
-### 1. 准备环境
-
-- Python `3.12+`
-- Node.js `18+`
+- Python 3.12
+- Node.js 20.19+ or 22.12+ for frontend builds
 - PostgreSQL
 - Redis
 
-### 2. 配置环境变量
+## Quick Start with Docker
 
-复制 `.env.example` 为 `.env`，至少确认以下配置：
+Docker Compose is the recommended way to try or self-host Just-We:
 
-```env
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/dynamicwepubmonitor
-REDIS_URL=redis://localhost:6379/0
-JWT_SECRET_KEY=change-me-in-production
-LLM_API_URL=https://api.example.com/v1/chat/completions
-LLM_API_KEY=
-LLM_MODEL=gpt-4o
-WEREAD_PLATFORM_URL=
+```bash
+docker compose up -d --build
 ```
 
-说明：
+Then open:
 
-- `WEREAD_PLATFORM_URL` 为空时，WeRead 二维码登录不可用
-- 公众号后台二维码登录不依赖该字段
-- 邮件告警配置走系统设置页面保存，不依赖 `.env`
+- Web UI and API: <http://localhost:8000>
+- Health check: <http://localhost:8000/health>
+- API docs: <http://localhost:8000/docs>
 
-### 3. 安装依赖
+Default bootstrap account:
 
-后端：
+- Username: `admin`
+- Password: `admin123`
+
+Before exposing the service, set a strong `JWT_SECRET_KEY` and change the
+default admin password. See [Docker deployment](docs/docker.md) for upgrade,
+backup, restore, logs, and reset commands.
+
+## Local Development
+
+Install backend dependencies:
 
 ```bash
 uv sync
 ```
 
-前端：
+Install frontend dependencies:
 
 ```bash
 cd frontend
 npm install
 ```
 
-### 4. 初始化数据库
+Copy the local environment example and adjust database credentials:
+
+```bash
+cp .env.example .env
+```
+
+Run migrations:
 
 ```bash
 uv run alembic upgrade head
 ```
 
-### 5. 启动服务
-
-后端：
+Start the backend:
 
 ```bash
 uv run uvicorn app.main:app --reload
 ```
 
-前端：
+Start the frontend dev server:
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-默认前端地址：`http://localhost:5173`  
-默认后端地址：`http://localhost:8000`
+Default local URLs:
 
-## 默认管理员
+- Frontend dev server: <http://localhost:5173>
+- Backend API: <http://localhost:8000>
 
-开发环境启动时，系统会自动确保存在默认管理员：
+## Configuration
 
-- 登录名：`admin`
-- 邮箱：`admin@admin.com`
-- 密码：`admin123`
+Configuration is loaded from environment variables. The main examples are:
 
-可通过环境变量关闭或覆盖：
+- `.env.example` for local development.
+- `.env.docker.example` for Docker-specific deployment overrides.
 
-- `ENSURE_DEFAULT_ADMIN`
-- `DEFAULT_ADMIN_ALIAS`
-- `DEFAULT_ADMIN_EMAIL`
-- `DEFAULT_ADMIN_PASSWORD`
+Key production settings include `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET_KEY`,
+`MEDIA_ROOT`, `FRONTEND_DIST_PATH`, `LLM_API_URL`, `LLM_API_KEY`,
+`WEREAD_PLATFORM_URL`, and the default admin bootstrap variables.
 
-## 测试与校验
+See [Configuration](docs/configuration.md) for the full table and operational
+notes.
 
-后端测试：
+## Testing
+
+Backend checks:
 
 ```bash
-pytest -q
+uv run ruff check app tests scripts
+uv run pytest -q
+uv run python -m compileall app tests scripts
 ```
 
-前端构建校验：
+Frontend build:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-最近一次清理后的本地验证结果：
+Docker checks:
 
-- `pytest -q`：`96 passed`
-- `npm run build`：通过
+```bash
+docker compose config
+docker compose build
+```
 
-## 当前保留的主流程
+## Documentation
 
-仓库已经移除以下历史遗留内容：
+- [Docker deployment](docs/docker.md)
+- [Configuration](docs/configuration.md)
+- [Project expectations](docs/项目期望.md)
+- [Frontend details](docs/前端详情.md)
+- [Backend details](docs/后端详情.md)
+- [Reference project notes](docs/参考项目详情.md)
 
-- 旧 `/api/accounts` 与 `/api/accounts/qr` 接口
-- 未接入现行路由的旧前端账号页和旧 store/composable
-- 无实际引用的图表、封装组件和模拟扫码页面
+`external_references/` is a local-only reference directory. It is ignored by Git
+and excluded from the Docker build context; it is not part of the open source
+release.
 
-当前统一使用：
+## Contributing
 
-- `collector_accounts`：抓取账号
-- `monitored_accounts`：监测对象
-- `articles`：文章与 AI 结果
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Keep
+changes focused, add tests for backend behavior changes, and do not commit
+runtime data, credentials, media, logs, frontend build output, or
+`external_references/`.
 
-## 文档
+## Security
 
-`docs/` 目录只保留四份当前权威文档：
+Please report vulnerabilities privately. See [SECURITY.md](SECURITY.md) for
+supported versions, reporting guidance, and deployment security notes.
 
-- [项目期望](docs/项目期望.md)
-- [参考项目详情](docs/参考项目详情.md)
-- [前端详情](docs/前端详情.md)
-- [后端详情](docs/后端详情.md)
+## License
 
-## 注意事项
-
-- 项目当前以 PostgreSQL 为默认数据库，不再维护 SQLite 作为正式运行方案
-- 前端构建仍会提示 `element-plus` 主包体积较大，这是打包优化问题，不影响运行
-- 如果你要接通真实 WeRead 登录，需提供兼容平台接口
+Just-We is licensed under the [MIT License](LICENSE).

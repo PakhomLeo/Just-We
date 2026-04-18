@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import (
@@ -53,6 +53,14 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="python_mu
 
 settings = get_settings()
 
+SPA_EXCLUDED_PREFIXES = (
+    "api",
+    "docs",
+    "redoc",
+    "openapi.json",
+    settings.media_url_prefix.strip("/"),
+)
+
 
 def _json_safe(value):
     """Convert validation payloads to JSON-safe primitives."""
@@ -75,6 +83,17 @@ def _build_validation_message(errors: list[dict]) -> str:
     if location:
         return f"{location}: {message}"
     return message
+
+
+def _frontend_dist() -> Path:
+    """Return the configured frontend build directory."""
+    return Path(settings.frontend_dist_path)
+
+
+def _should_serve_spa(full_path: str) -> bool:
+    """Return whether a request path should fall back to the Vue app."""
+    first_segment = full_path.strip("/").split("/", 1)[0]
+    return first_segment not in SPA_EXCLUDED_PREFIXES
 
 
 @asynccontextmanager
@@ -176,6 +195,33 @@ def create_app() -> FastAPI:
     app.include_router(image_router, prefix="/api")
     app.include_router(rate_limit_router, prefix="/api")
     app.include_router(public_feeds_router)
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_frontend(full_path: str):
+        """Serve built frontend assets and SPA deep-link fallbacks."""
+        if not _should_serve_spa(full_path):
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={"detail": "Not Found"},
+            )
+
+        dist_dir = _frontend_dist()
+        index_file = dist_dir / "index.html"
+        requested_file = (dist_dir / full_path).resolve()
+
+        try:
+            requested_file.relative_to(dist_dir.resolve())
+        except ValueError:
+            requested_file = index_file
+
+        if requested_file.is_file():
+            return FileResponse(requested_file)
+        if index_file.is_file():
+            return FileResponse(index_file)
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": "Frontend build not found"},
+        )
 
     return app
 

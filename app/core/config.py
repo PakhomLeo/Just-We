@@ -109,6 +109,10 @@ class Settings(BaseSettings):
         default="/media",
         description="Public URL prefix for serving localized media files",
     )
+    frontend_dist_path: str = Field(
+        default="frontend/dist",
+        description="Path to built frontend assets for single-container deployments",
+    )
     collector_health_check_interval_hours: int = Field(
         default=6,
         description="Interval in hours for periodic collector account health checks",

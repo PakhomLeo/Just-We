@@ -21,9 +21,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Split element-plus into its own chunk
-          'element-plus': ['element-plus'],
+        manualChunks(id) {
+          if (id.includes('node_modules/element-plus')) {
+            return 'element-plus'
+          }
+          return undefined
         }
       }
     },

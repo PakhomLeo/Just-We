@@ -14,11 +14,13 @@ wheels/
 .env
 .env.*
 !.env.example
+!.env.docker.example
 *.db
 *.sqlite
 *.sqlite3
 media/
 external_references/
+logs/
 
 # Node / frontend
 node_modules/

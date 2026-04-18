@@ -3,134 +3,127 @@
 [![CI](https://github.com/PakhomLeo/dynamicwepubmonitor/actions/workflows/ci.yml/badge.svg)](https://github.com/PakhomLeo/dynamicwepubmonitor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Just-We is a FastAPI and Vue 3 platform for monitoring WeChat Official Account
-content. It manages collector accounts, monitored accounts, article collection,
-localized media, AI relevance analysis, exports, Feed access, rate limits,
-proxies, task logs, and system administration from one web console.
+中文 | [English](README.en.md)
 
-The project is designed for self-hosted operation. The fastest production-like
-path is the Docker Compose deployment, which starts the app, PostgreSQL, and
-Redis with one command.
+Just-We 是一个面向微信公众号内容监测的自托管平台。它把抓取账号、监测公众号、文章采集、图片本地化、AI 内容分析、文章导出、Feed 输出、代理管理、限流策略、任务日志和系统管理整合在同一个 Web 控制台里。
 
-## Features
+项目的核心目标不是做一个通用爬虫框架，而是解决“稳定监测一批公众号内容，并把文章、媒体、AI 判断和运维状态沉淀下来”的完整闭环。默认推荐使用 Docker Compose 一键部署，应用容器同时提供 FastAPI API 和已构建的 Vue 前端静态文件。
 
-- User authentication and role-based access for `admin`, `operator`, and
-  `viewer`.
-- Collector account management with QR-login flows, health checks, expiry
-  detection, and failure states.
-- Monitored account management with `biz` / `fakeid` parsing, owner isolation,
-  tiering, scheduling strategy, and manual fetch triggers.
-- Article collection with rich content, media localization, detail pages,
-  export workflows, and Feed tokens.
-- AI analysis, configurable provider settings, relevance thresholds, and
-  notification hooks.
-- Proxy, rate-limit, weight configuration, task log, audit log, system user, and
-  system setting pages.
-- Single-container web serving for production builds, including SPA deep-link
-  refresh support.
+## 功能特性
 
-## Architecture
+- 用户登录与角色权限：支持 `admin`、`operator`、`viewer` 三类角色。
+- 抓取账号管理：支持公众号后台和 WeRead 兼容平台接入，包含二维码登录、健康检查、过期检测、风险状态和失败记录。
+- 监测公众号管理：支持从文章链接解析 `biz` / `fakeid`，按用户隔离监测对象，维护 Tier 分层、抓取策略和手动抓取入口。
+- 文章采集与归档：保存标题、正文、富文本 HTML、封面图、发布时间、抓取通道、内容指纹、原始抓取元数据和本地化图片。
+- AI 分析：支持可配置的文本分析、图片分析、类型判断和综合判断流程，并保存结构化分析结果。
+- Feed 与导出：支持单账号 Feed、聚合 Feed、文章导出任务和下载路径。
+- 代理与限流：代理可按业务服务绑定，支持失败冷却、成功率、代理类型、轮换模式和策略配置。
+- 日志与任务：保留抓取任务、操作日志、失败原因和运行统计，便于排查系统阻塞点。
+- 单容器 Web 托管：生产镜像内置前端产物，后端支持前端路由刷新 fallback。
+
+## 项目结构
 
 ```text
-app/         FastAPI application, API routers, services, repositories, tasks
-alembic/     PostgreSQL migration chain
-frontend/    Vue 3, Vite, Element Plus, Pinia admin console
-tests/       Backend regression tests
-docs/        Deployment, configuration, and project reference documentation
+app/         FastAPI 应用、API 路由、服务层、仓储层、任务和模型
+alembic/     PostgreSQL 数据库迁移链
+frontend/    Vue 3、Vite、Element Plus、Pinia 管理后台
+tests/       后端回归测试
+docs/        部署、配置、设计和项目参考文档
 ```
 
-Runtime dependencies:
+## 技术栈
 
-- Python 3.12
-- Node.js 20.19+ or 22.12+ for frontend builds
-- PostgreSQL
-- Redis
+- 后端：FastAPI、SQLAlchemy Async、Alembic、Pydantic Settings、APScheduler
+- 前端：Vue 3、Vite、Element Plus、Pinia、Vue Router、Axios
+- 数据库：PostgreSQL
+- 缓存与运行状态：Redis
+- 部署：Dockerfile 多阶段构建、Docker Compose
 
-## Quick Start with Docker
+## Docker 快速开始
 
-Docker Compose is the recommended way to try or self-host Just-We:
+推荐使用 Docker Compose 直接启动完整环境：
 
 ```bash
 docker compose up -d --build
 ```
 
-Then open:
+启动后访问：
 
-- Web UI and API: <http://localhost:8000>
-- Health check: <http://localhost:8000/health>
-- API docs: <http://localhost:8000/docs>
+- Web UI 和 API：<http://localhost:8000>
+- 健康检查：<http://localhost:8000/health>
+- API 文档：<http://localhost:8000/docs>
 
-Default bootstrap account:
+默认管理员：
 
-- Username: `admin`
-- Password: `admin123`
+- 用户名：`admin`
+- 密码：`admin123`
 
-Before exposing the service, set a strong `JWT_SECRET_KEY` and change the
-default admin password. See [Docker deployment](docs/docker.md) for upgrade,
-backup, restore, logs, and reset commands.
+生产环境暴露服务前必须修改 `JWT_SECRET_KEY`，并在首次登录后修改默认管理员密码。更多部署、升级、备份、恢复和日志查看方式见 [Docker 部署文档](docs/docker.md)。
 
-## Local Development
+## 本地开发
 
-Install backend dependencies:
+准备依赖：
+
+- Python 3.12
+- Node.js 20.19+ 或 22.12+
+- PostgreSQL
+- Redis
+
+安装后端依赖：
 
 ```bash
 uv sync
 ```
 
-Install frontend dependencies:
+安装前端依赖：
 
 ```bash
 cd frontend
 npm install
 ```
 
-Copy the local environment example and adjust database credentials:
+复制本地环境变量：
 
 ```bash
 cp .env.example .env
 ```
 
-Run migrations:
+执行数据库迁移：
 
 ```bash
 uv run alembic upgrade head
 ```
 
-Start the backend:
+启动后端：
 
 ```bash
 uv run uvicorn app.main:app --reload
 ```
 
-Start the frontend dev server:
+启动前端开发服务器：
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-Default local URLs:
+默认本地地址：
 
-- Frontend dev server: <http://localhost:5173>
-- Backend API: <http://localhost:8000>
+- 前端开发服务器：<http://localhost:5173>
+- 后端 API：<http://localhost:8000>
 
-## Configuration
+## 配置
 
-Configuration is loaded from environment variables. The main examples are:
+配置通过环境变量加载：
 
-- `.env.example` for local development.
-- `.env.docker.example` for Docker-specific deployment overrides.
+- `.env.example`：本地开发示例。
+- `.env.docker.example`：Docker 部署覆盖示例。
 
-Key production settings include `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET_KEY`,
-`MEDIA_ROOT`, `FRONTEND_DIST_PATH`, `LLM_API_URL`, `LLM_API_KEY`,
-`WEREAD_PLATFORM_URL`, and the default admin bootstrap variables.
+关键配置包括 `DATABASE_URL`、`REDIS_URL`、`JWT_SECRET_KEY`、`MEDIA_ROOT`、`FRONTEND_DIST_PATH`、`LLM_API_URL`、`LLM_API_KEY`、`WEREAD_PLATFORM_URL` 和默认管理员启动配置。完整说明见 [配置文档](docs/configuration.md)。
 
-See [Configuration](docs/configuration.md) for the full table and operational
-notes.
+## 测试
 
-## Testing
-
-Backend checks:
+后端检查：
 
 ```bash
 uv run ruff check app tests scripts
@@ -138,45 +131,40 @@ uv run pytest -q
 uv run python -m compileall app tests scripts
 ```
 
-Frontend build:
+前端构建：
 
 ```bash
 cd frontend
 npm run build
 ```
 
-Docker checks:
+Docker 检查：
 
 ```bash
 docker compose config
 docker compose build
 ```
 
-## Documentation
+## 文档
 
-- [Docker deployment](docs/docker.md)
-- [Configuration](docs/configuration.md)
-- [Project expectations](docs/项目期望.md)
-- [Frontend details](docs/前端详情.md)
-- [Backend details](docs/后端详情.md)
-- [Reference project notes](docs/参考项目详情.md)
+- [技术设计文档](docs/technical-design.md)
+- [Docker 部署](docs/docker.md)
+- [配置说明](docs/configuration.md)
+- [项目期望](docs/项目期望.md)
+- [前端详情](docs/前端详情.md)
+- [后端详情](docs/后端详情.md)
+- [参考项目详情](docs/参考项目详情.md)
 
-`external_references/` is a local-only reference directory. It is ignored by Git
-and excluded from the Docker build context; it is not part of the open source
-release.
+`external_references/` 是本地参考资料目录，已被 Git 和 Docker build context 排除，不属于开源发布内容。
 
-## Contributing
+## 贡献
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Keep
-changes focused, add tests for backend behavior changes, and do not commit
-runtime data, credentials, media, logs, frontend build output, or
-`external_references/`.
+提交 Pull Request 前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。请保持变更聚焦，为后端行为、权限、迁移、Feed、导出和调度逻辑补充必要测试，不要提交运行数据、密钥、媒体文件、日志、前端构建产物或 `external_references/`。
 
-## Security
+## 安全
 
-Please report vulnerabilities privately. See [SECURITY.md](SECURITY.md) for
-supported versions, reporting guidance, and deployment security notes.
+请不要在公开 issue 中披露漏洞细节、密钥、QR 会话、日志或个人数据。漏洞报告方式和部署安全建议见 [SECURITY.md](SECURITY.md)。
 
-## License
+## 许可证
 
-Just-We is licensed under the [MIT License](LICENSE).
+Just-We 使用 [MIT License](LICENSE)。

@@ -5,7 +5,6 @@ from typing import Any, TypeVar
 
 from sqlalchemy import Select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.engine import Row
 
 from app.models.base import Base
 

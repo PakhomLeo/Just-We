@@ -533,96 +533,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dynamicwepubmonitor"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiosqlite" },
-    { name = "alembic" },
-    { name = "apscheduler" },
-    { name = "asyncpg" },
-    { name = "beautifulsoup4" },
-    { name = "curl-cffi" },
-    { name = "email-validator" },
-    { name = "fastapi" },
-    { name = "fastapi-users" },
-    { name = "httpx" },
-    { name = "loguru" },
-    { name = "lxml" },
-    { name = "passlib", extra = ["bcrypt"] },
-    { name = "pillow" },
-    { name = "pydantic-settings" },
-    { name = "pyqrcode" },
-    { name = "python-jose", extra = ["cryptography"] },
-    { name = "python-multipart" },
-    { name = "redis" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "black" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "black" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiosqlite", specifier = ">=0.19.0" },
-    { name = "alembic", specifier = ">=1.13.1" },
-    { name = "apscheduler", specifier = ">=3.10.4" },
-    { name = "asyncpg", specifier = ">=0.29.0" },
-    { name = "beautifulsoup4", specifier = ">=4.12.3" },
-    { name = "black", marker = "extra == 'dev'", specifier = ">=24.1.1" },
-    { name = "curl-cffi", specifier = ">=0.5.10" },
-    { name = "email-validator", specifier = ">=2.1.0" },
-    { name = "fastapi", specifier = ">=0.109.0" },
-    { name = "fastapi-users", specifier = ">=12.1.0" },
-    { name = "httpx", specifier = ">=0.26.0" },
-    { name = "loguru", specifier = ">=0.7.2" },
-    { name = "lxml", specifier = ">=5.1.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
-    { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
-    { name = "pillow", specifier = ">=10.2.0" },
-    { name = "pydantic-settings", specifier = ">=2.1.0" },
-    { name = "pyqrcode", specifier = ">=1.2.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.3" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
-    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
-    { name = "python-multipart", specifier = ">=0.0.6" },
-    { name = "redis", specifier = ">=5.0.1" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.14" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.25" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
-]
-provides-extras = ["dev"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "black", specifier = ">=24.1.1" },
-    { name = "mypy", specifier = ">=1.8.0" },
-    { name = "pytest", specifier = ">=8.0.0" },
-    { name = "pytest-asyncio", specifier = ">=0.23.3" },
-    { name = "pytest-cov", specifier = ">=4.1.0" },
-    { name = "ruff", specifier = ">=0.1.14" },
-]
-
-[[package]]
 name = "ecdsa"
 version = "0.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -809,6 +719,96 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730", size = 20503, upload-time = "2025-10-18T21:55:43.219Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12", size = 7484, upload-time = "2025-10-18T21:55:41.639Z" },
+]
+
+[[package]]
+name = "just-we"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "alembic" },
+    { name = "apscheduler" },
+    { name = "asyncpg" },
+    { name = "beautifulsoup4" },
+    { name = "curl-cffi" },
+    { name = "email-validator" },
+    { name = "fastapi" },
+    { name = "fastapi-users" },
+    { name = "httpx" },
+    { name = "loguru" },
+    { name = "lxml" },
+    { name = "passlib", extra = ["bcrypt"] },
+    { name = "pillow" },
+    { name = "pydantic-settings" },
+    { name = "pyqrcode" },
+    { name = "python-jose", extra = ["cryptography"] },
+    { name = "python-multipart" },
+    { name = "redis" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "black" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "black" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.19.0" },
+    { name = "alembic", specifier = ">=1.13.1" },
+    { name = "apscheduler", specifier = ">=3.10.4" },
+    { name = "asyncpg", specifier = ">=0.29.0" },
+    { name = "beautifulsoup4", specifier = ">=4.12.3" },
+    { name = "black", marker = "extra == 'dev'", specifier = ">=24.1.1" },
+    { name = "curl-cffi", specifier = ">=0.5.10" },
+    { name = "email-validator", specifier = ">=2.1.0" },
+    { name = "fastapi", specifier = ">=0.109.0" },
+    { name = "fastapi-users", specifier = ">=12.1.0" },
+    { name = "httpx", specifier = ">=0.26.0" },
+    { name = "loguru", specifier = ">=0.7.2" },
+    { name = "lxml", specifier = ">=5.1.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
+    { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
+    { name = "pillow", specifier = ">=10.2.0" },
+    { name = "pydantic-settings", specifier = ">=2.1.0" },
+    { name = "pyqrcode", specifier = ">=1.2.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.3" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
+    { name = "python-multipart", specifier = ">=0.0.6" },
+    { name = "redis", specifier = ">=5.0.1" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.14" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.25" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
+]
+provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "black", specifier = ">=24.1.1" },
+    { name = "mypy", specifier = ">=1.8.0" },
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "pytest-asyncio", specifier = ">=0.23.3" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "ruff", specifier = ">=0.1.14" },
 ]
 
 [[package]]

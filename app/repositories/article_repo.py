@@ -18,40 +18,59 @@ class ArticleRepository(BaseRepository):
     def __init__(self, db: AsyncSession):
         super().__init__(Article, db)
 
-    async def get_by_account(
+    async def get_by_monitored_account(
         self,
-        account_id: int,
+        monitored_account_id: int,
         skip: int = 0,
         limit: int = 50,
-        monitored: bool = False,
     ) -> list[Article]:
-        """Get articles by account ID."""
-        column = Article.monitored_account_id if monitored else Article.account_id
+        """Get articles by monitored account ID."""
         result = await self.db.execute(
             Select(Article)
-            .options(selectinload(Article.account), selectinload(Article.monitored_account))
-            .where(column == account_id)
+            .options(selectinload(Article.monitored_account))
+            .where(Article.monitored_account_id == monitored_account_id)
             .order_by(desc(Article.published_at))
             .offset(skip)
             .limit(limit)
         )
         return list(result.scalars().all())
 
+    async def get_for_feed(
+        self,
+        monitored_account_ids: list[int],
+        skip: int = 0,
+        limit: int = 50,
+        title_include: str | None = None,
+        title_exclude: str | None = None,
+    ) -> list[Article]:
+        """Get articles for feed generation."""
+        if not monitored_account_ids:
+            return []
+        query = (
+            Select(Article)
+            .options(selectinload(Article.monitored_account))
+            .where(Article.monitored_account_id.in_(monitored_account_ids))
+        )
+        if title_include:
+            query = query.where(Article.title.ilike(f"%{title_include}%"))
+        if title_exclude:
+            query = query.where(~Article.title.ilike(f"%{title_exclude}%"))
+        result = await self.db.execute(query.order_by(desc(Article.published_at)).offset(skip).limit(limit))
+        return list(result.scalars().all())
+
     async def get_recent_articles(
         self,
-        account_id: int,
+        monitored_account_id: int,
         hours: int = 24,
-        monitored: bool = False,
     ) -> list[Article]:
-        """Get recent articles for an account within specified hours."""
+        """Get recent articles for a monitored account within specified hours."""
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-        column = Article.monitored_account_id if monitored else Article.account_id
         result = await self.db.execute(
             Select(Article)
-            .options(selectinload(Article.account), selectinload(Article.monitored_account))
+            .options(selectinload(Article.monitored_account))
             .where(
                 and_(
-                    column == account_id,
+                    Article.monitored_account_id == monitored_account_id,
                     Article.published_at >= cutoff,
                 )
             )
@@ -71,37 +90,19 @@ class ArticleRepository(BaseRepository):
         article_id: int,
         owner_user_id: uuid.UUID | None = None,
     ) -> Article | None:
-        query = Select(Article).options(selectinload(Article.account), selectinload(Article.monitored_account))
+        query = Select(Article).options(selectinload(Article.monitored_account))
         query = query.where(Article.id == article_id)
         if owner_user_id is not None:
             query = query.where(Article.monitored_account.has(owner_user_id=owner_user_id))
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
-    async def get_by_account_and_title(
-        self,
-        account_id: int,
-        title: str,
-    ) -> Article | None:
-        """Get article by account and title."""
-        result = await self.db.execute(
-            Select(Article).where(
-                and_(
-                    Article.account_id == account_id,
-                    Article.title == title,
-                )
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def get_count_by_account(self, account_id: int) -> int:
-        """Get total article count for an account."""
+    async def get_count_by_monitored_account(self, monitored_account_id: int) -> int:
+        """Get total article count for a monitored account."""
         result = await self.db.execute(
             Select(func.count())
             .select_from(Article)
-            .where(
-                (Article.account_id == account_id) | (Article.monitored_account_id == account_id)
-            )
+            .where(Article.monitored_account_id == monitored_account_id)
         )
         return result.scalar_one()
 
@@ -109,7 +110,6 @@ class ArticleRepository(BaseRepository):
         self,
         skip: int = 0,
         limit: int = 50,
-        account_id: int | None = None,
         monitored_account_id: int | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
@@ -119,8 +119,6 @@ class ArticleRepository(BaseRepository):
         query = Select(Article)
 
         conditions = []
-        if account_id:
-            conditions.append(Article.account_id == account_id)
         if monitored_account_id:
             conditions.append(Article.monitored_account_id == monitored_account_id)
         if start_date:
@@ -142,7 +140,7 @@ class ArticleRepository(BaseRepository):
 
         # Get paginated results
         result = await self.db.execute(
-            query.options(selectinload(Article.account), selectinload(Article.monitored_account))
+            query.options(selectinload(Article.monitored_account))
             .order_by(desc(Article.published_at))
             .offset(skip)
             .limit(limit)

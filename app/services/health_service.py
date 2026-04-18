@@ -1,11 +1,8 @@
-"""Health check service for legacy and collector accounts."""
+"""Health check service for collector accounts."""
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Tuple
-
 import httpx
 
-from app.models.account import Account, AccountType, HealthStatus
 from app.models.collector_account import CollectorAccount, CollectorAccountType, CollectorHealthStatus
 
 
@@ -18,119 +15,6 @@ class HealthCheckService:
 
     def __init__(self, db=None):
         self.db = db
-
-    async def check_account_health(
-        self,
-        account: Account,
-    ) -> Tuple[HealthStatus, str]:
-        """
-        Check the health status of an account.
-
-        Returns:
-            Tuple of (health_status, reason)
-        """
-        # Check if cookies are set
-        if not account.cookies:
-            return HealthStatus.INVALID, "未设置 Cookie"
-
-        # Check if cookies are expired based on cookies_expire_at
-        if account.cookies_expire_at:
-            if datetime.now(timezone.utc) > account.cookies_expire_at:
-                return HealthStatus.EXPIRED, "Cookie 已过期"
-
-        # Perform live health check based on account type
-        try:
-            if account.account_type == AccountType.WEREAD:
-                return await self._check_weread_health(account)
-            elif account.account_type == AccountType.MP:
-                return await self._check_mp_health(account)
-            else:
-                return HealthStatus.INVALID, f"未知账号类型: {account.account_type}"
-        except Exception as e:
-            return HealthStatus.INVALID, f"健康检查异常: {str(e)}"
-
-    async def _check_weread_health(self, account: Account) -> Tuple[HealthStatus, str]:
-        """Check WeRead account health."""
-        # WeRead health check endpoint
-        url = "https://weread.qq.com/webapp/json/bookStoreHomePage"
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Referer": "https://weread.qq.com/",
-        }
-
-        # Add cookies
-        if account.cookies:
-            cookie_str = self._format_cookies(account.cookies)
-            headers["Cookie"] = cookie_str
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, headers=headers)
-
-                if response.status_code == 200:
-                    # Check if response contains expected data
-                    data = response.json()
-                    if data.get("bookStoreHomePage"):
-                        return HealthStatus.NORMAL, "正常"
-                    else:
-                        return HealthStatus.RESTRICTED, "数据异常"
-                elif response.status_code == 403:
-                    return HealthStatus.RESTRICTED, "访问被拒绝 (403)"
-                elif response.status_code == 401:
-                    return HealthStatus.EXPIRED, "未授权 (401)"
-                else:
-                    return HealthStatus.INVALID, f"HTTP {response.status_code}"
-        except httpx.TimeoutException:
-            return HealthStatus.RESTRICTED, "请求超时"
-        except httpx.RequestError as e:
-            return HealthStatus.INVALID, f"请求失败: {str(e)}"
-
-    async def _check_mp_health(self, account: Account) -> Tuple[HealthStatus, str]:
-        """Check WeChat MP account health."""
-        # MP health check endpoint - use profile or list endpoint
-        url = "https://mp.weixin.qq.com/cgi-bin/home"
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Referer": "https://mp.weixin.qq.com/",
-        }
-
-        # Add cookies
-        if account.cookies:
-            cookie_str = self._format_cookies(account.cookies)
-            headers["Cookie"] = cookie_str
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-                response = await client.get(url, headers=headers)
-
-                if response.status_code == 200:
-                    # Check if redirected to login
-                    if "login" in response.headers.get("Location", ""):
-                        return HealthStatus.EXPIRED, "需要重新登录"
-                    # Check response content
-                    text = response.text
-                    if "accountupgrade" in text or "appmsg" in text:
-                        return HealthStatus.NORMAL, "正常"
-                    else:
-                        return HealthStatus.RESTRICTED, "数据异常"
-                elif response.status_code == 403:
-                    return HealthStatus.RESTRICTED, "访问被拒绝 (403)"
-                elif response.status_code == 302:
-                    # Redirect usually means need to login
-                    location = response.headers.get("Location", "")
-                    if "login" in location.lower():
-                        return HealthStatus.EXPIRED, "重定向到登录页"
-                    return HealthStatus.RESTRICTED, f"重定向: {location[:50]}"
-                elif response.status_code == 401:
-                    return HealthStatus.EXPIRED, "未授权 (401)"
-                else:
-                    return HealthStatus.INVALID, f"HTTP {response.status_code}"
-        except httpx.TimeoutException:
-            return HealthStatus.RESTRICTED, "请求超时"
-        except httpx.RequestError as e:
-            return HealthStatus.INVALID, f"请求失败: {str(e)}"
 
     async def check_collector_account_health(
         self,
@@ -272,12 +156,6 @@ class HealthCheckService:
         if token:
             return CollectorHealthStatus.NORMAL, "令牌存在，等待平台校验"
         return CollectorHealthStatus.INVALID, "缺少可用凭证"
-
-    def _format_cookies(self, cookies: dict) -> str:
-        """Format cookies dict to string."""
-        if isinstance(cookies, str):
-            return cookies
-        return "; ".join(f"{k}={v}" for k, v in cookies.items())
 
     def calculate_expire_at(
         self,

@@ -1,5 +1,5 @@
 import request from '@/utils/request'
 
-export const triggerFetchTask = (accountId) => request.post(`/tasks/fetch/${accountId}`)
+export const triggerFetchTask = (monitoredAccountId) => request.post(`/tasks/fetch/${monitoredAccountId}`)
 export const triggerAllFetchTasks = () => request.post('/tasks/fetch/all')
-export const getFetchTaskStatus = (accountId) => request.get(`/tasks/fetch/${accountId}/status`)
+export const getFetchTaskStatus = (monitoredAccountId) => request.get(`/tasks/fetch/${monitoredAccountId}/status`)

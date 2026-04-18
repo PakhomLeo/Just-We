@@ -23,7 +23,7 @@ def _create_engine() -> AsyncEngine:
     """Create async PostgreSQL engine."""
     return create_async_engine(
         settings.database_url,
-        echo=settings.debug,
+        echo=settings.database_echo,
         pool_size=10,
         max_overflow=20,
         pool_pre_ping=True,

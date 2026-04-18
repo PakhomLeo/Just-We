@@ -44,6 +44,7 @@ class UserResponse(BaseModel):
     id: UUID
     email: str
     role: UserRole
+    aggregate_feed_token: str
     is_active: bool
     is_superuser: bool
     last_login: datetime | None = None

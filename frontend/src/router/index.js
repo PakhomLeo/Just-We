@@ -5,12 +5,12 @@ const routes = [
   {
     path: '/login',
     name: 'Login',
-    component: () => import('@/views/auth/Login.vue'),
+    component: () => import('@/views/v2/LoginV2.vue'),
     meta: { requiresAuth: false }
   },
   {
     path: '/',
-    component: () => import('@/components/layout/AppLayout.vue'),
+    component: () => import('@/components/v2/V2AppShell.vue'),
     meta: { requiresAuth: true },
     children: [
       {
@@ -20,7 +20,7 @@ const routes = [
       {
         path: 'dashboard',
         name: 'Dashboard',
-        component: () => import('@/views/dashboard/Dashboard.vue')
+        component: () => import('@/views/v2/DashboardV2.vue')
       },
       {
         path: 'accounts',
@@ -30,50 +30,55 @@ const routes = [
       {
         path: 'mp-accounts',
         name: 'MpAccounts',
-        component: () => import('@/views/accounts/MpAccountManage.vue')
+        component: () => import('@/views/v2/MonitoredAccountsV2.vue')
       },
       {
         path: 'articles',
         name: 'Articles',
-        component: () => import('@/views/articles/ArticleList.vue')
+        component: () => import('@/views/v2/ArticleListV2.vue')
+      },
+      {
+        path: 'exports',
+        name: 'ArticleExports',
+        component: () => import('@/views/v2/ArticleExportV2.vue')
       },
       {
         path: 'articles/:id',
         name: 'ArticleDetail',
-        component: () => import('@/views/articles/ArticleDetail.vue')
+        component: () => import('@/views/v2/ArticleDetailV2.vue')
       },
       {
         path: 'proxies',
         name: 'Proxies',
-        component: () => import('@/views/proxies/ProxyManage.vue')
+        component: () => import('@/views/v2/ProxyManageV2.vue')
       },
       {
         path: 'weight',
         name: 'WeightConfig',
-        component: () => import('@/views/weight/WeightConfig.vue'),
+        component: () => import('@/views/v2/WeightConfigV2.vue'),
         meta: { requiresAdmin: true }
       },
       {
         path: 'logs',
         name: 'Logs',
-        component: () => import('@/views/logs/LogsMonitor.vue'),
+        component: () => import('@/views/v2/JobsLogsV2.vue'),
         meta: { requiresAdmin: true }
       },
       {
         path: 'capture-accounts',
         name: 'CaptureAccounts',
-        component: () => import('@/views/users/UserManage.vue')
+        component: () => import('@/views/v2/CollectorAccountsV2.vue')
       },
       {
         path: 'system-users',
         name: 'SystemUsers',
-        component: () => import('@/views/users/SystemUsers.vue'),
+        component: () => import('@/views/v2/SystemUsersV2.vue'),
         meta: { requiresAdmin: true }
       },
       {
         path: 'settings',
         name: 'Settings',
-        component: () => import('@/views/settings/SystemSettings.vue'),
+        component: () => import('@/views/v2/SystemSettingsV2.vue'),
         meta: { requiresAdmin: true }
       }
     ]
@@ -85,20 +90,25 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore()
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth !== false)
   const requiresAdmin = to.matched.some(record => record.meta.requiresAdmin)
 
-  if (requiresAuth && !authStore.isAuthenticated) {
-    next({ name: 'Login', query: { redirect: to.fullPath } })
-  } else if (requiresAdmin && authStore.user?.role !== 'admin') {
-    next({ name: 'Dashboard' })
-  } else if (to.name === 'Login' && authStore.isAuthenticated) {
-    next({ name: 'Dashboard' })
-  } else {
-    next()
+  if (authStore.token && !authStore.user) {
+    await authStore.fetchUser()
   }
+
+  if (requiresAuth && !authStore.isAuthenticated) {
+    return { name: 'Login', query: { redirect: to.fullPath } }
+  }
+  if (requiresAdmin && authStore.user?.role !== 'admin') {
+    return { name: 'Dashboard' }
+  }
+  if (to.name === 'Login' && authStore.isAuthenticated) {
+    return { name: 'Dashboard' }
+  }
+  return true
 })
 
 export default router

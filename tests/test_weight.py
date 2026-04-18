@@ -5,7 +5,14 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.services.dynamic_weight_adjuster import DynamicWeightAdjuster
-from app.models.account import Account
+from app.models.monitored_account import MonitoredAccount
+
+
+def _history(now: datetime, day_offsets: list[int], count: int = 3) -> dict[str, int]:
+    return {
+        (now - timedelta(days=offset)).isoformat(): count
+        for offset in day_offsets
+    }
 
 
 class TestDynamicWeightAdjuster:
@@ -39,6 +46,14 @@ class TestDynamicWeightAdjuster:
 
         score = adjuster.calculate_recency_score(last_updated, {})
         assert score >= 90  # Very recent
+
+    def test_calculate_recency_score_accepts_naive_datetime(self):
+        """Test recency score for frontend date-picker values without timezone."""
+        adjuster = DynamicWeightAdjuster()
+        last_updated = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
+
+        score = adjuster.calculate_recency_score(last_updated, {})
+        assert score >= 90
 
     def test_calculate_recency_score_old(self):
         """Test recency score for old account."""
@@ -112,7 +127,7 @@ class TestDynamicWeightAdjuster:
         score = adjuster.calculate_stability_score(update_history)
         assert 0 <= score <= 100
 
-    def test_calculate_score_composite(self, mock_account: Account):
+    def test_calculate_score_composite(self, mock_account: MonitoredAccount):
         """Test composite score calculation."""
         adjuster = DynamicWeightAdjuster()
 
@@ -120,7 +135,7 @@ class TestDynamicWeightAdjuster:
         score = adjuster.calculate_score(mock_account, new_article_count=2)
         assert 0 <= score <= 100
 
-    def test_calculate_score_with_ai_result(self, mock_account: Account, sample_ai_result: dict):
+    def test_calculate_score_with_ai_result(self, mock_account: MonitoredAccount, sample_ai_result: dict):
         """Test score calculation with AI result."""
         adjuster = DynamicWeightAdjuster()
 
@@ -161,12 +176,12 @@ class TestDynamicWeightAdjuster:
         assert adjuster.determine_tier(30) == 5
         assert adjuster.determine_tier(35) == 4
 
-    def test_apply_manual_override_none(self, mock_account: Account):
+    def test_apply_manual_override_none(self, mock_account: MonitoredAccount):
         """Test no manual override active."""
         adjuster = DynamicWeightAdjuster()
         assert not adjuster.apply_manual_override(mock_account)
 
-    def test_apply_manual_override_active(self, mock_account: Account):
+    def test_apply_manual_override_active(self, mock_account: MonitoredAccount):
         """Test active manual override."""
         adjuster = DynamicWeightAdjuster()
         mock_account.manual_override = {
@@ -176,7 +191,7 @@ class TestDynamicWeightAdjuster:
         }
         assert adjuster.apply_manual_override(mock_account)
 
-    def test_apply_manual_override_expired(self, mock_account: Account):
+    def test_apply_manual_override_expired(self, mock_account: MonitoredAccount):
         """Test expired manual override."""
         adjuster = DynamicWeightAdjuster()
         mock_account.manual_override = {
@@ -186,7 +201,7 @@ class TestDynamicWeightAdjuster:
         }
         assert not adjuster.apply_manual_override(mock_account)
 
-    def test_get_next_check_interval(self, mock_account: Account):
+    def test_get_next_check_interval(self, mock_account: MonitoredAccount):
         """Test next check interval based on tier."""
         adjuster = DynamicWeightAdjuster()
 
@@ -205,7 +220,7 @@ class TestDynamicWeightAdjuster:
         mock_account.current_tier = 5
         assert adjuster.get_next_check_interval(mock_account) == 336
 
-    def test_update_after_fetch_no_override(self, mock_account: Account, sample_ai_result: dict):
+    def test_update_after_fetch_no_override(self, mock_account: MonitoredAccount, sample_ai_result: dict):
         """Test update after fetch without override."""
         adjuster = DynamicWeightAdjuster()
 
@@ -221,7 +236,7 @@ class TestDynamicWeightAdjuster:
         assert "tier_changed" in result
         assert result["override_active"] is False
 
-    def test_update_after_fetch_with_override(self, mock_account: Account):
+    def test_update_after_fetch_with_override(self, mock_account: MonitoredAccount):
         """Test update after fetch with active override."""
         adjuster = DynamicWeightAdjuster()
         mock_account.manual_override = {
@@ -239,7 +254,7 @@ class TestDynamicWeightAdjuster:
         assert result["override_active"] is True
         assert result["new_tier"] == 1
 
-    def test_update_after_fetch_updates_history(self, mock_account: Account):
+    def test_update_after_fetch_updates_history(self, mock_account: MonitoredAccount):
         """Test that update_after_fetch updates history."""
         adjuster = DynamicWeightAdjuster()
 
@@ -276,6 +291,25 @@ class TestDynamicWeightAdjuster:
         assert "next_interval_hours" in result
         assert "score_breakdown" in result
         assert "frequency" in result["score_breakdown"]
+
+    def test_simulate_score_accepts_naive_last_updated_string(self):
+        """Test frontend date-picker timestamp strings without timezone."""
+        adjuster = DynamicWeightAdjuster()
+
+        result = adjuster.simulate_score(
+            update_history={"day_1": 3, "day_2": 1},
+            ai_relevance_history={
+                "day_1": {"ratio": 1.0},
+                "day_2": {"ratio": 0.0},
+            },
+            last_updated=(datetime.now(timezone.utc) - timedelta(hours=2))
+            .replace(tzinfo=None)
+            .isoformat(sep=" "),
+            new_article_count=3,
+            ai_result={"ratio": 1.0},
+        )
+
+        assert result["score_breakdown"]["recency"] >= 90
         assert "recency" in result["score_breakdown"]
         assert "relevance" in result["score_breakdown"]
         assert "stability" in result["score_breakdown"]
@@ -331,3 +365,141 @@ class TestDynamicWeightAdjuster:
         assert adjuster.determine_tier(49.99) == 4
         assert adjuster.determine_tier(35) == 4
         assert adjuster.determine_tier(34.99) == 5
+
+    def test_simulate_score_changes_tier_for_different_fetch_values(self):
+        """High activity/relevance inputs should outrank stale/non-matching inputs."""
+        adjuster = DynamicWeightAdjuster()
+        now = datetime.now(timezone.utc)
+
+        active_matching = adjuster.simulate_score(
+            update_history=_history(now, list(range(14)), count=4),
+            ai_relevance_history={},
+            last_updated=(now - timedelta(hours=2)).isoformat(),
+            new_article_count=6,
+            ai_result={
+                "ratio": 1.0,
+                "target_match": "是",
+                "target_type": "体育赛事资讯",
+                "reason": "matches target type",
+            },
+        )
+        stale_not_matching = adjuster.simulate_score(
+            update_history=_history(now, [80], count=1),
+            ai_relevance_history={},
+            last_updated=(now - timedelta(days=75)).isoformat(),
+            new_article_count=0,
+            ai_result={
+                "ratio": 0.0,
+                "target_match": "不是",
+                "target_type": "体育赛事资讯",
+                "reason": "does not match target type",
+            },
+        )
+
+        assert active_matching["new_score"] > stale_not_matching["new_score"]
+        assert active_matching["new_tier"] < stale_not_matching["new_tier"]
+        assert active_matching["new_tier"] == 1
+        assert stale_not_matching["new_tier"] == 5
+        assert active_matching["score_breakdown"]["frequency"] > stale_not_matching["score_breakdown"]["frequency"]
+        assert active_matching["score_breakdown"]["recency"] > stale_not_matching["score_breakdown"]["recency"]
+        assert active_matching["score_breakdown"]["relevance"] > stale_not_matching["score_breakdown"]["relevance"]
+
+    def test_target_type_match_changes_relevance_and_can_promote_tier(self):
+        """The AI 是/不是 result should flow into relevance and change priority."""
+        adjuster = DynamicWeightAdjuster(
+            frequency_ratio=0.20,
+            recency_ratio=0.20,
+            relevance_ratio=0.45,
+            stability_ratio=0.15,
+        )
+        now = datetime.now(timezone.utc)
+        update_history = _history(now, [0, 3, 6, 9], count=2)
+        last_updated = (now - timedelta(days=3)).isoformat()
+
+        matching = adjuster.simulate_score(
+            update_history=update_history,
+            ai_relevance_history={},
+            last_updated=last_updated,
+            new_article_count=2,
+            ai_result={"ratio": 1.0, "target_match": "是", "target_type": "产业投融资"},
+        )
+        not_matching = adjuster.simulate_score(
+            update_history=update_history,
+            ai_relevance_history={},
+            last_updated=last_updated,
+            new_article_count=2,
+            ai_result={"ratio": 0.0, "target_match": "不是", "target_type": "产业投融资"},
+        )
+
+        assert matching["score_breakdown"]["relevance"] == 100.0
+        assert not_matching["score_breakdown"]["relevance"] == 0.0
+        assert matching["new_score"] > not_matching["new_score"]
+        assert matching["new_tier"] < not_matching["new_tier"]
+
+    def test_weight_ratio_configuration_changes_expected_priority_order(self):
+        """Changing weight ratios should change which account profile wins."""
+        now = datetime.now(timezone.utc)
+        active_low_relevance = {
+            "update_history": _history(now, list(range(10)), count=5),
+            "ai_relevance_history": {},
+            "last_updated": (now - timedelta(hours=3)).isoformat(),
+            "new_article_count": 5,
+            "ai_result": {"ratio": 0.0, "target_match": "不是"},
+        }
+        quiet_high_relevance = {
+            "update_history": _history(now, [25, 50, 75], count=1),
+            "ai_relevance_history": {},
+            "last_updated": (now - timedelta(days=25)).isoformat(),
+            "new_article_count": 0,
+            "ai_result": {"ratio": 1.0, "target_match": "是"},
+        }
+
+        frequency_first = DynamicWeightAdjuster(
+            frequency_ratio=0.70,
+            recency_ratio=0.10,
+            relevance_ratio=0.10,
+            stability_ratio=0.10,
+        )
+        relevance_first = DynamicWeightAdjuster(
+            frequency_ratio=0.10,
+            recency_ratio=0.10,
+            relevance_ratio=0.70,
+            stability_ratio=0.10,
+        )
+
+        active_frequency_score = frequency_first.simulate_score(**active_low_relevance)["new_score"]
+        quiet_frequency_score = frequency_first.simulate_score(**quiet_high_relevance)["new_score"]
+        active_relevance_score = relevance_first.simulate_score(**active_low_relevance)["new_score"]
+        quiet_relevance_score = relevance_first.simulate_score(**quiet_high_relevance)["new_score"]
+
+        assert active_frequency_score > quiet_frequency_score
+        assert quiet_relevance_score > active_relevance_score
+
+    def test_update_after_fetch_persists_target_match_for_weight_history(
+        self,
+        mock_account: MonitoredAccount,
+    ):
+        """AI type judgment should be stored in account relevance history."""
+        adjuster = DynamicWeightAdjuster()
+        fetch_time = datetime.now(timezone.utc)
+
+        result = adjuster.update_after_fetch(
+            account=mock_account,
+            new_articles=[{"title": "Target article"}],
+            ai_result={
+                "ratio": 1.0,
+                "target_match": "是",
+                "target_type": "产业投融资",
+                "reason": "target type matched",
+                "text_analysis": {"summary": "text summary"},
+                "image_analysis": {"summary": "image summary"},
+            },
+            fetch_time=fetch_time,
+        )
+
+        entry = result["ai_relevance_history"][fetch_time.isoformat()]
+        assert entry["ratio"] == 1.0
+        assert entry["match"] == "是"
+        assert entry["target_type"] == "产业投融资"
+        assert entry["text_summary"] == "text summary"
+        assert entry["image_summary"] == "image summary"

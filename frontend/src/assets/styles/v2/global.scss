@@ -1,0 +1,149 @@
+@use './tokens' as *;
+
+.v2-app,
+.v2-login {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 8% 8%, rgba($v2-purple, 0.18), transparent 28%),
+    radial-gradient(circle at 92% 2%, rgba($v2-yellow, 0.2), transparent 22%),
+    linear-gradient(135deg, $v2-bg 0%, #e6eef5 100%);
+  color: $v2-ink;
+}
+
+.v2-grid {
+  display: grid;
+  gap: 22px;
+}
+
+.v2-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.v2-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.v2-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.v2-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.v2-risk-note {
+  border-radius: 20px;
+  background: $v2-warning-bg;
+  color: $v2-orange;
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.45;
+}
+
+.v2-muted {
+  color: $v2-muted;
+  font-weight: 700;
+}
+
+.v2-json {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 18px;
+  background: $v2-card-soft;
+  padding: 16px;
+  color: $v2-ink;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.v2-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.v2-app {
+  .el-button {
+    border-radius: 999px;
+    font-weight: 900;
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+  }
+
+  .el-button:hover {
+    transform: translateY(-1px);
+  }
+
+  .el-button:active {
+    transform: translateY(1px) scale(0.98);
+  }
+
+  .el-button--primary {
+    --el-button-bg-color: #{$v2-purple};
+    --el-button-border-color: #{$v2-purple};
+    --el-button-hover-bg-color: #{$v2-lavender};
+    --el-button-hover-border-color: #{$v2-lavender};
+  }
+
+  .el-button--warning {
+    --el-button-bg-color: #{$v2-yellow};
+    --el-button-border-color: #{$v2-yellow};
+    --el-button-text-color: #{$v2-ink};
+    --el-button-hover-bg-color: #{$v2-yellow-soft};
+    --el-button-hover-border-color: #{$v2-yellow-soft};
+  }
+
+  .el-input__wrapper,
+  .el-textarea__inner,
+  .el-select__wrapper {
+    border-radius: 18px;
+    background: $v2-card-soft;
+    box-shadow: 0 0 0 1px rgba($v2-line, 0.55) inset;
+  }
+
+  .el-table {
+    --el-table-bg-color: transparent;
+    --el-table-tr-bg-color: transparent;
+    --el-table-header-bg-color: #{$v2-card-soft};
+    --el-table-border-color: transparent;
+    border-radius: 22px;
+    overflow: hidden;
+  }
+
+  .el-table__row {
+    background: rgba($v2-card-soft, 0.82);
+  }
+
+  .el-dialog,
+  .el-drawer {
+    border-radius: 28px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .v2-grid-4,
+  .v2-grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .v2-grid-4,
+  .v2-grid-3,
+  .v2-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .v2-page-actions,
+  .v2-button-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

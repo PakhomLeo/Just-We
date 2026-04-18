@@ -1,22 +1,28 @@
 """Proxy API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, status, Query
 
 from app.core.dependencies import DbSession, CurrentUser, AdminUser, OperatorUser
-from app.core.exceptions import ProxyNotAvailableException
-from app.models.proxy import ServiceType
+from app.models.proxy import ProxyServiceKey, ServiceType
 from app.schemas.proxy import (
     ProxyCreate,
     ProxyUpdate,
     ProxyResponse,
     ProxyTestResult,
     ProxyListResponse,
+    ProxyBulkCreate,
+    ProxyBulkCreateResponse,
+    ProxyServicesResponse,
+    ProxyServicesUpdate,
 )
 from app.services.proxy_service import ProxyService
 
 
 router = APIRouter(prefix="/proxies", tags=["Proxies"])
+
+
+def _proxy_response(proxy) -> ProxyResponse:
+    return ProxyResponse.model_validate(proxy)
 
 
 @router.get("/", response_model=ProxyListResponse)
@@ -26,12 +32,17 @@ async def list_proxies(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     service_type: ServiceType | None = None,
+    service_key: ProxyServiceKey | None = None,
     active_only: bool = True,
 ):
     """Get paginated list of proxies."""
     proxy_service = ProxyService(db)
 
-    if service_type:
+    if service_key:
+        proxies = await proxy_service.get_proxies_by_service_key(service_key, active_only)
+        total = len(proxies)
+        proxies = proxies[(page - 1) * page_size : page * page_size]
+    elif service_type:
         proxies = await proxy_service.get_proxies_by_service_type(service_type, active_only)
         total = len(proxies)
         proxies = proxies[(page - 1) * page_size : page * page_size]
@@ -46,11 +57,21 @@ async def list_proxies(
 
     return ProxyListResponse(
         total=total,
-        items=[ProxyResponse.model_validate(p) for p in proxies],
+        items=[_proxy_response(p) for p in proxies],
         page=page,
         page_size=page_size,
         total_pages=total_pages,
     )
+
+
+@router.get("/stats")
+async def get_proxy_stats(
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    """Get proxy statistics."""
+    proxy_service = ProxyService(db)
+    return await proxy_service.get_proxy_stats()
 
 
 @router.post("/", response_model=ProxyResponse, status_code=status.HTTP_201_CREATED)
@@ -62,15 +83,41 @@ async def create_proxy(
     """Create a new proxy."""
     proxy_service = ProxyService(db)
 
-    proxy = await proxy_service.create_proxy(
-        host=request.host,
-        port=request.port,
-        service_type=request.service_type,
-        username=request.username,
-        password=request.password,
-    )
+    try:
+        proxy = await proxy_service.create_proxy(
+            host=request.host,
+            port=request.port,
+            service_type=request.service_type,
+            username=request.username,
+            password=request.password,
+            proxy_kind=request.proxy_kind,
+            rotation_mode=request.rotation_mode,
+            sticky_ttl_seconds=request.sticky_ttl_seconds,
+            provider_name=request.provider_name,
+            notes=request.notes,
+            service_keys=request.service_keys,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return ProxyResponse.model_validate(proxy)
+    return _proxy_response(proxy)
+
+
+@router.post("/bulk", response_model=ProxyBulkCreateResponse, status_code=status.HTTP_201_CREATED)
+async def bulk_create_proxies(
+    request: ProxyBulkCreate,
+    db: DbSession,
+    current_user: OperatorUser,
+):
+    proxy_service = ProxyService(db)
+    try:
+        proxies = await proxy_service.bulk_create([item.model_dump() for item in request.proxies])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ProxyBulkCreateResponse(
+        created=len(proxies),
+        items=[_proxy_response(proxy) for proxy in proxies],
+    )
 
 
 @router.put("/{proxy_id}", response_model=ProxyResponse)
@@ -84,9 +131,57 @@ async def update_proxy(
     proxy_service = ProxyService(db)
 
     update_data = {k: v for k, v in request.model_dump().items() if v is not None}
-    proxy = await proxy_service.update_proxy(proxy_id, **update_data)
+    try:
+        proxy = await proxy_service.update_proxy(proxy_id, **update_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return ProxyResponse.model_validate(proxy)
+    return _proxy_response(proxy)
+
+
+@router.get("/{proxy_id}/services", response_model=ProxyServicesResponse)
+async def get_proxy_services(
+    proxy_id: int,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    proxy_service = ProxyService(db)
+    from app.repositories.proxy_repo import ProxyRepository
+
+    proxy = await ProxyRepository(db).get_by_id(proxy_id)
+    if proxy is None:
+        raise HTTPException(status_code=404, detail=f"Proxy {proxy_id} not found")
+    return ProxyServicesResponse(
+        proxy_id=proxy.id,
+        service_keys=proxy.service_keys,
+        compatible_service_keys=proxy_service.compatible_service_keys(proxy),
+        incompatible_reasons=proxy_service.incompatible_reasons(proxy),
+    )
+
+
+@router.put("/{proxy_id}/services", response_model=ProxyServicesResponse)
+async def update_proxy_services(
+    proxy_id: int,
+    request: ProxyServicesUpdate,
+    db: DbSession,
+    current_user: OperatorUser,
+):
+    proxy_service = ProxyService(db)
+    from app.repositories.proxy_repo import ProxyRepository
+
+    proxy = await ProxyRepository(db).get_by_id(proxy_id)
+    if proxy is None:
+        raise HTTPException(status_code=404, detail=f"Proxy {proxy_id} not found")
+    try:
+        service_keys = await proxy_service.replace_service_bindings(proxy, request.service_keys)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ProxyServicesResponse(
+        proxy_id=proxy.id,
+        service_keys=service_keys,
+        compatible_service_keys=proxy_service.compatible_service_keys(proxy),
+        incompatible_reasons=proxy_service.incompatible_reasons(proxy),
+    )
 
 
 @router.delete("/{proxy_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -121,18 +216,3 @@ async def test_proxy(
 
     result = await proxy_service.test_proxy(proxy)
     return ProxyTestResult(**result)
-
-
-@router.get("/stats")
-async def get_proxy_stats(
-    db: DbSession,
-    current_user: CurrentUser,
-):
-    """Get proxy statistics."""
-    proxy_service = ProxyService(db)
-    total = await proxy_service.get_proxy_count()
-    return {
-        "total": total,
-        "availableRate": 0,
-        "lastCheck": "-"
-    }

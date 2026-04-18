@@ -10,18 +10,27 @@ class ArticleResponse(BaseModel):
     """Schema for article response."""
 
     id: int
-    account_id: int | None
     monitored_account_id: int | None = None
     title: str
     content: str
+    content_html: str | None = None
+    content_type: str | None = None
     raw_content: str | None
     images: list[str]
+    original_images: list[str] | None = None
     cover_image: str | None = None
     url: str
     author: str | None = None
     published_at: datetime | None
     ai_relevance_ratio: float | None
     ai_judgment: dict[str, Any] | None
+    ai_text_analysis: dict[str, Any] | None = None
+    ai_image_analysis: dict[str, Any] | None = None
+    ai_type_judgment: dict[str, Any] | None = None
+    ai_combined_analysis: dict[str, Any] | None = None
+    ai_target_match: str | None = None
+    ai_analysis_status: str | None = None
+    ai_analysis_error: str | None = None
     fetch_mode: str | None = None
     source_payload: dict[str, Any] | None = None
     created_at: datetime
@@ -34,18 +43,27 @@ class ArticleWithAccountResponse(BaseModel):
     """Schema for article response with account_name included."""
 
     id: int
-    account_id: int | None
     monitored_account_id: int | None = None
     title: str
     content: str
+    content_html: str | None = None
+    content_type: str | None = None
     raw_content: str | None
     images: list[str]
+    original_images: list[str] | None = None
     cover_image: str | None = None
     url: str
     author: str | None = None
     published_at: datetime | None
     ai_relevance_ratio: float | None
     ai_judgment: dict[str, Any] | None
+    ai_text_analysis: dict[str, Any] | None = None
+    ai_image_analysis: dict[str, Any] | None = None
+    ai_type_judgment: dict[str, Any] | None = None
+    ai_combined_analysis: dict[str, Any] | None = None
+    ai_target_match: str | None = None
+    ai_analysis_status: str | None = None
+    ai_analysis_error: str | None = None
     fetch_mode: str | None = None
     source_payload: dict[str, Any] | None = None
     created_at: datetime
@@ -68,18 +86,27 @@ class ArticleListResponse(BaseModel):
 class ArticleCreate(BaseModel):
     """Schema for creating an article (internal use)."""
 
-    account_id: int | None
     monitored_account_id: int | None = None
     title: str
     content: str
+    content_html: str | None = None
+    content_type: str | None = None
     raw_content: str | None = None
     images: list[str] = []
+    original_images: list[str] | None = None
     cover_image: str | None = None
     url: str
     author: str | None = None
     published_at: datetime | None = None
     ai_relevance_ratio: float | None = None
     ai_judgment: dict[str, Any] | None = None
+    ai_text_analysis: dict[str, Any] | None = None
+    ai_image_analysis: dict[str, Any] | None = None
+    ai_type_judgment: dict[str, Any] | None = None
+    ai_combined_analysis: dict[str, Any] | None = None
+    ai_target_match: str | None = None
+    ai_analysis_status: str | None = None
+    ai_analysis_error: str | None = None
     fetch_mode: str | None = None
     source_payload: dict[str, Any] | None = None
 
@@ -87,7 +114,6 @@ class ArticleCreate(BaseModel):
 class ArticleFilter(BaseModel):
     """Schema for filtering articles."""
 
-    account_id: int | None = None
     monitored_account_id: int | None = None
     start_date: datetime | None = None
     end_date: datetime | None = None

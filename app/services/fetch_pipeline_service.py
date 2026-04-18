@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.exceptions import FetchFailedException
-from app.models.collector_account import CollectorHealthStatus
+from app.models.collector_account import CollectorAccountType
 from app.models.fetch_job import FetchJobType
 from app.repositories.monitored_account_repo import MonitoredAccountRepository
 from app.services.ai_service import AIService
@@ -19,6 +19,8 @@ from app.services.fetcher_service import FetcherService
 from app.services.notification_service import NotificationService
 from app.services.parser_service import ParserService
 from app.services.scheduler_service import SchedulerService
+from app.services.system_config_service import SystemConfigService
+from app.services.weight_config_service import WeightConfigService
 
 settings = get_settings()
 
@@ -35,9 +37,14 @@ class FetchPipelineService:
         self.article_service = ArticleService(db)
         self.ai_service = AIService(db=db)
         self.fetch_job_service = FetchJobService(db)
-        self.adjuster = DynamicWeightAdjuster()
         self.scheduler_service = SchedulerService(db)
         self.notification_service = NotificationService(db)
+        self.system_config_service = SystemConfigService(db)
+        self.adjuster = DynamicWeightAdjuster()
+
+    async def _build_adjuster(self) -> DynamicWeightAdjuster:
+        config = await WeightConfigService(self.db).get_or_create()
+        return DynamicWeightAdjuster(**WeightConfigService.to_adjuster_kwargs(config))
 
     def _schedule_monitored_account(self, monitored_account_id: int, tier: int):
         from app.tasks.fetch_task import run_single_account
@@ -46,33 +53,34 @@ class FetchPipelineService:
         self.scheduler_service.schedule_next_fetch(monitored_account_id, interval_hours, run_single_account)
         return self.scheduler_service.get_next_run_at(interval_hours)
 
-    def _count_consecutive_low_relevance(self, history: dict) -> int:
+    async def _count_consecutive_low_relevance(self, history: dict) -> int:
         if not history:
             return 0
+        config = await WeightConfigService(self.db).get_or_create()
         ranked_items = []
         for timestamp, item in history.items():
             ranked_items.append((self._parse_datetime(timestamp) or datetime.min.replace(tzinfo=timezone.utc), item))
         count = 0
         for _, item in sorted(ranked_items, key=lambda pair: pair[0], reverse=True):
             ratio = item.get("ratio") if isinstance(item, dict) else None
-            if ratio is None or ratio >= settings.high_relevance_threshold:
+            if ratio is None or ratio >= config.high_relevance_threshold:
                 break
             count += 1
         return count
 
     async def _select_collector(self, monitored_account):
-        preferred = monitored_account.primary_fetch_mode
-        accounts = await self.collector_service.repo.get_by_owner_and_type(monitored_account.owner_user_id, preferred)
-        healthy = [a for a in accounts if a.health_status == CollectorHealthStatus.NORMAL and a.status.value == "active"]
+        policy = await self.system_config_service.get_or_create_fetch_policy()
+        fetch_mode = CollectorAccountType(policy.primary_modes.get(str(monitored_account.current_tier), monitored_account.primary_fetch_mode.value))
+        if monitored_account.primary_fetch_mode != fetch_mode or monitored_account.fallback_fetch_mode is not None:
+            await self.monitored_repo.update(
+                monitored_account,
+                primary_fetch_mode=fetch_mode,
+                fallback_fetch_mode=None,
+            )
+        accounts = await self.collector_service.repo.get_by_owner_and_type(monitored_account.owner_user_id, fetch_mode)
+        healthy = [a for a in accounts if self.collector_service.is_available_for_fetch(a)]
         if healthy:
             return healthy[0]
-        if monitored_account.fallback_fetch_mode:
-            fallback = await self.collector_service.repo.get_by_owner_and_type(
-                monitored_account.owner_user_id, monitored_account.fallback_fetch_mode
-            )
-            healthy = [a for a in fallback if a.health_status == CollectorHealthStatus.NORMAL and a.status.value == "active"]
-            if healthy:
-                return healthy[0]
         return None
 
     async def _run_update_list_stage(self, monitored, collector) -> list:
@@ -171,6 +179,8 @@ class FetchPipelineService:
         monitored = await self.monitored_repo.get_by_id(monitored_account_id)
         if monitored is None:
             return {"success": False, "error": "Monitored account not found"}
+        if type(self.adjuster) is DynamicWeightAdjuster:
+            self.adjuster = await self._build_adjuster()
 
         collector = await self._select_collector(monitored)
         job = await self.fetch_job_service.create_job(monitored_account_id, FetchJobType.FULL_SYNC)
@@ -216,12 +226,26 @@ class FetchPipelineService:
                 )
                 try:
                     ai_result = await self.ai_service.analyze_article(parsed.content, parsed.images)
+                    ai_pipeline_result = getattr(self.ai_service, "last_pipeline_result", None)
                 except Exception as exc:
                     ai_result = {
                         "ratio": 0.0,
                         "reason": f"AI analysis failed: {exc}",
                         "keywords": [],
                         "json_data": {},
+                    }
+                    ai_pipeline_result = None
+                if not isinstance(ai_pipeline_result, dict):
+                    ai_pipeline_result = {
+                        "status": "success",
+                        "ratio": ai_result.get("ratio", 0.0),
+                        "ai_judgment": ai_result,
+                        "ai_text_analysis": ai_result.get("text_analysis"),
+                        "ai_image_analysis": ai_result.get("image_analysis"),
+                        "ai_type_judgment": ai_result.get("type_judgment"),
+                        "ai_combined_analysis": ai_result.get("json_data"),
+                        "ai_target_match": ai_result.get("target_match"),
+                        "ai_analysis_error": None,
                     }
                 fingerprint = hashlib.sha256(parsed.content.encode("utf-8")).hexdigest()
                 localized_images = [
@@ -238,18 +262,27 @@ class FetchPipelineService:
                     )
                     localized_cover_image = self.parser.image_downloader.to_public_url(local_cover) if local_cover else cover_source
                 article = await self.article_service.save_article(
-                    account_id=None,
                     monitored_account_id=monitored.id,
                     title=detail.get("title") or parsed.title or update.title,
                     content=parsed.content,
+                    content_html=parsed.content_html,
+                    content_type=parsed.content_type,
                     raw_content=detail.get("raw_content"),
                     images=localized_images,
+                    original_images=parsed.original_images or [],
                     cover_image=localized_cover_image,
                     author=detail.get("author") or update.author,
                     url=update.url,
                     published_at=self._parse_datetime(detail.get("published_at") or update.published_at),
-                    ai_relevance_ratio=ai_result.get("ratio"),
-                    ai_judgment=ai_result,
+                    ai_relevance_ratio=ai_pipeline_result.get("ratio"),
+                    ai_judgment=ai_pipeline_result.get("ai_judgment") or ai_result,
+                    ai_text_analysis=ai_pipeline_result.get("ai_text_analysis"),
+                    ai_image_analysis=ai_pipeline_result.get("ai_image_analysis"),
+                    ai_type_judgment=ai_pipeline_result.get("ai_type_judgment"),
+                    ai_combined_analysis=ai_pipeline_result.get("ai_combined_analysis"),
+                    ai_target_match=ai_pipeline_result.get("ai_target_match"),
+                    ai_analysis_status=ai_pipeline_result.get("status"),
+                    ai_analysis_error=ai_pipeline_result.get("ai_analysis_error"),
                     fetch_mode=collector.account_type.value,
                     content_fingerprint=fingerprint,
                     source_payload=update.source_payload,
@@ -261,7 +294,7 @@ class FetchPipelineService:
                     monitored_account=monitored,
                     collector_account=collector,
                     article=article,
-                    relevance_ratio=ai_result.get("ratio") or 0.0,
+                    relevance_ratio=ai_pipeline_result.get("ratio") or 0.0,
                 )
 
             aggregate = self._aggregate_ai_results(ai_results)
@@ -271,9 +304,13 @@ class FetchPipelineService:
                 key=lambda value: value or datetime.min.replace(tzinfo=timezone.utc),
             )
             next_run_at = self._schedule_monitored_account(monitored.id, weight_update["new_tier"])
+            policy = await self.system_config_service.get_or_create_fetch_policy()
+            next_fetch_mode = CollectorAccountType(policy.primary_modes.get(str(weight_update["new_tier"]), collector.account_type.value))
             monitored = await self.monitored_repo.update(
                 monitored,
                 current_tier=weight_update["new_tier"],
+                primary_fetch_mode=next_fetch_mode,
+                fallback_fetch_mode=None,
                 composite_score=weight_update["new_score"],
                 last_polled_at=datetime.now(timezone.utc),
                 last_published_at=latest_published,
@@ -281,7 +318,7 @@ class FetchPipelineService:
                 update_history=weight_update.get("update_history", monitored.update_history),
                 ai_relevance_history=weight_update.get("ai_relevance_history", monitored.ai_relevance_history),
             )
-            consecutive_low_count = self._count_consecutive_low_relevance(monitored.ai_relevance_history)
+            consecutive_low_count = await self._count_consecutive_low_relevance(monitored.ai_relevance_history)
             await self.notification_service.check_and_notify_ai_consecutive_low(
                 owner_user_id=monitored.owner_user_id,
                 monitored_account=monitored,
@@ -341,11 +378,82 @@ class FetchPipelineService:
                 )
             return {"success": False, "error": str(exc)}
 
+    async def run_history_backfill(self, monitored_account_id: int, job_id: int | None = None) -> dict:
+        """Run a single-instance history backfill wrapper around the fetch pipeline."""
+        monitored = await self.monitored_repo.get_by_id(monitored_account_id)
+        if monitored is None:
+            return {"success": False, "error": "Monitored account not found"}
+
+        job = await self.fetch_job_service.repo.get_by_id(job_id) if job_id else None
+        if job is None:
+            existing = await self.fetch_job_service.get_running_history_backfill(monitored_account_id)
+            if existing is not None:
+                return {"success": True, "status": "already_running", "job_id": existing.id}
+            job = await self.fetch_job_service.create_job(monitored_account_id, FetchJobType.HISTORY_BACKFILL)
+
+        await self.fetch_job_service.mark_running(
+            job,
+            payload={
+                "stage": "history_backfill",
+                "page": 1,
+                "begin": 0,
+                "fetched_count": 0,
+                "saved_count": 0,
+                "failure_category": None,
+                "proxy_id": None,
+                "collector_account_id": None,
+            },
+        )
+        try:
+            before_count = await self.article_service.get_article_count(monitored_account_id)
+            result = await self.run_monitored_account(monitored_account_id)
+            after_count = await self.article_service.get_article_count(monitored_account_id)
+            payload = {
+                "stage": "history_backfill",
+                "page": 1,
+                "begin": before_count,
+                "fetched_count": result.get("articles_processed", 0),
+                "saved_count": max(after_count - before_count, 0),
+                "failure_category": None if result.get("success") else "pipeline_failure",
+                "proxy_id": None,
+                "collector_account_id": result.get("collector_account_id"),
+                "result": result,
+            }
+            if result.get("success"):
+                await self.fetch_job_service.mark_success(job, payload=payload)
+            else:
+                await self.fetch_job_service.mark_failed(
+                    job,
+                    result.get("error", "History backfill failed"),
+                    payload={**payload, "failure_category": "pipeline_failure"},
+                )
+            return {**result, "job_id": job.id}
+        except Exception as exc:
+            await self.fetch_job_service.mark_failed(
+                job,
+                str(exc),
+                payload={
+                    "stage": "history_backfill",
+                    "failure_category": "unclassified",
+                    "page": 1,
+                },
+            )
+            return {"success": False, "error": str(exc), "job_id": job.id}
+
     def _aggregate_ai_results(self, results):
         ratios = [item.get("ratio", 0) for item in results if item.get("ratio") is not None]
         if not ratios:
             return {"ratio": 0.0, "reason": "No successful AI results"}
-        return {"ratio": sum(ratios) / len(ratios), "reason": f"Aggregated from {len(ratios)} items"}
+        matched_count = len([item for item in results if item.get("target_match") == "是"])
+        first_match = next((item for item in results if item.get("target_match") in {"是", "不是"}), {})
+        return {
+            "ratio": sum(ratios) / len(ratios),
+            "reason": f"Aggregated from {len(ratios)} items; matched {matched_count}",
+            "target_match": "是" if matched_count else ("不是" if first_match else None),
+            "target_type": first_match.get("target_type"),
+            "text_analysis": first_match.get("text_analysis"),
+            "image_analysis": first_match.get("image_analysis"),
+        }
 
     def _parse_datetime(self, value):
         if not value:

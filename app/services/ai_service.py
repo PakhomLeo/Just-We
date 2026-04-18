@@ -1,24 +1,36 @@
-"""AI service for content analysis using LLM."""
+"""Three-stage AI service for article text, image, and target-type analysis."""
 
+from __future__ import annotations
+
+import base64
+import json
+import re
+from pathlib import Path
 from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
 from app.core.exceptions import AIAnalysisException
-from app.services.system_config_service import SystemConfigService
+from app.services.system_config_service import (
+    DEFAULT_IMAGE_ANALYSIS_PROMPT,
+    DEFAULT_TEXT_ANALYSIS_PROMPT,
+    DEFAULT_TYPE_JUDGMENT_PROMPT,
+    SystemConfigService,
+)
 
 
 settings = get_settings()
 
 
-class AIService:
-    """
-    Service for AI-based content analysis.
+class StrictJSONParseError(ValueError):
+    """Raised when an LLM response cannot be parsed as valid JSON."""
 
-    This service calls LLM API to analyze article content and determine
-    sports/relevance ratio and other metrics.
-    """
+
+class ArticleAIAnalysisService:
+    """Run text analysis, image analysis, and target type judgment."""
+
+    VALID_MATCH_VALUES = {"是", "不是"}
 
     def __init__(
         self,
@@ -29,31 +41,315 @@ class AIService:
         prompt_template: str | None = None,
         mock_mode: bool = False,
     ):
-        """
-        Initialize AI service.
-
-        Args:
-            api_url: LLM API URL (defaults to settings.llm_api_url)
-            api_key: LLM API key (defaults to settings.llm_api_key)
-            model: Model name (defaults to settings.llm_model)
-            mock_mode: If True, return mock results without calling API
-        """
         self.db = db
-        self.api_url = api_url or settings.llm_api_url
-        self.api_key = api_key or settings.llm_api_key
-        self.model = model or settings.llm_model
-        self.prompt_template = prompt_template
         self.mock_mode = mock_mode
+        self.config = None
+        self.api_url_override = api_url
+        self.api_key_override = api_key
+        self.model_override = model
+        self.prompt_template_override = prompt_template
 
     async def load_runtime_config(self) -> None:
-        """Load persisted system config when DB is available."""
         if not self.db:
             return
-        config = await SystemConfigService(self.db).get_or_create_ai_config()
-        self.api_url = config.api_url
-        self.api_key = config.api_key
-        self.model = config.model
-        self.prompt_template = config.prompt_template
+        self.config = await SystemConfigService(self.db).get_or_create_ai_config()
+
+    def _config_value(self, name: str, fallback: Any = None) -> Any:
+        return getattr(self.config, name, fallback) if self.config is not None else fallback
+
+    def _text_api_config(self) -> dict[str, Any]:
+        config = {
+            "api_url": self._config_value("text_api_url", "") or self._config_value("api_url", settings.llm_api_url),
+            "api_key": self._config_value("text_api_key", "") or self._config_value("api_key", settings.llm_api_key),
+            "model": self._config_value("text_model", "") or self._config_value("model", settings.llm_model),
+            "enabled": bool(self._config_value("enabled", True)) and bool(self._config_value("text_enabled", True)),
+            "timeout": int(self._config_value("timeout_seconds", 60) or 60),
+        }
+        if self.api_url_override:
+            config["api_url"] = self.api_url_override
+        if self.api_key_override:
+            config["api_key"] = self.api_key_override
+        if self.model_override:
+            config["model"] = self.model_override
+        return config
+
+    def _image_api_config(self) -> dict[str, Any]:
+        config = {
+            "api_url": self._config_value("image_api_url", "") or self._config_value("api_url", settings.llm_api_url),
+            "api_key": self._config_value("image_api_key", "") or self._config_value("api_key", settings.llm_api_key),
+            "model": self._config_value("image_model", "") or self._config_value("model", settings.llm_model),
+            "enabled": bool(self._config_value("enabled", True)) and bool(self._config_value("image_enabled", True)),
+            "timeout": int(self._config_value("timeout_seconds", 60) or 60),
+        }
+        if self.api_url_override:
+            config["api_url"] = self.api_url_override
+        if self.api_key_override:
+            config["api_key"] = self.api_key_override
+        if self.model_override:
+            config["model"] = self.model_override
+        return config
+
+    def _json_constraint(self, *, type_judgment: bool = False) -> str:
+        base = "只返回合法 JSON。不要 Markdown，不要代码块，不要解释性文字。"
+        if type_judgment:
+            return f"{base} 字段 target_match 必须存在，且只能是“是”或“不是”。"
+        return base
+
+    def _render_prompt(self, template: str, values: dict[str, Any], *, type_judgment: bool = False) -> str:
+        prompt = template or DEFAULT_TYPE_JUDGMENT_PROMPT if type_judgment else template
+        prompt = prompt or DEFAULT_TEXT_ANALYSIS_PROMPT
+        for key, value in values.items():
+            if isinstance(value, (dict, list)):
+                rendered = json.dumps(value, ensure_ascii=False)
+            else:
+                rendered = str(value)
+            prompt = prompt.replace(f"{{{{{key}}}}}", rendered)
+        return f"{prompt}\n\n{self._json_constraint(type_judgment=type_judgment)}"
+
+    def _extract_content(self, response: dict[str, Any]) -> str:
+        try:
+            return str(response.get("choices", [{}])[0].get("message", {}).get("content", "") or "")
+        except Exception:
+            return ""
+
+    def parse_json_response(self, response: dict[str, Any] | str) -> dict[str, Any]:
+        """Strictly parse an LLM response body as JSON, allowing markdown fences."""
+        content = self._extract_content(response) if isinstance(response, dict) else response
+        content = str(content or "").strip()
+        fence = re.fullmatch(r"```(?:json)?\s*(?P<body>.*?)\s*```", content, flags=re.DOTALL | re.IGNORECASE)
+        if fence:
+            content = fence.group("body").strip()
+        try:
+            parsed = json.loads(content)
+        except Exception as exc:
+            raise StrictJSONParseError("AI response is not valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise StrictJSONParseError("AI response JSON must be an object")
+        return parsed
+
+    async def _call_llm(
+        self,
+        *,
+        api_config: dict[str, Any],
+        prompt: str,
+        image_paths: list[str] | None = None,
+        proxy: str | None = None,
+    ) -> dict[str, Any]:
+        if not api_config["enabled"]:
+            raise AIAnalysisException(0, "AI stage is disabled")
+        if self.mock_mode:
+            return {"choices": [{"message": {"content": json.dumps({"mock": True, "summary": prompt[:120]}, ensure_ascii=False)}}]}
+
+        messages: list[dict[str, Any]]
+        if image_paths:
+            content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+            for image_path in image_paths[:5]:
+                data_url = self._image_to_data_url(image_path)
+                if data_url:
+                    content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+            messages = [{"role": "user", "content": content_parts}]
+        else:
+            messages = [{"role": "user", "content": prompt}]
+
+        async with httpx.AsyncClient(timeout=float(api_config["timeout"])) as client:
+            response = await client.post(
+                api_config["api_url"],
+                json={
+                    "model": api_config["model"],
+                    "messages": messages,
+                    "temperature": 0.1,
+                    "response_format": {"type": "json_object"},
+                },
+                headers={"Authorization": f"Bearer {api_config['api_key']}"},
+                proxy=proxy,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    def _image_to_data_url(self, image_path: str) -> str | None:
+        try:
+            path = Path(image_path)
+            if not path.exists() or not path.is_file():
+                return None
+            suffix = path.suffix.lower().lstrip(".") or "jpeg"
+            mime = "jpeg" if suffix in {"jpg", "jpeg"} else suffix
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            return f"data:image/{mime};base64,{encoded}"
+        except Exception:
+            return None
+
+    async def _call_json_stage(
+        self,
+        *,
+        api_config: dict[str, Any],
+        prompt: str,
+        image_paths: list[str] | None = None,
+        type_judgment: bool = False,
+        proxy: str | None = None,
+    ) -> dict[str, Any]:
+        last_error: Exception | None = None
+        current_prompt = prompt
+        for attempt in range(2):
+            try:
+                response = await self._call_llm(
+                    api_config=api_config,
+                    prompt=current_prompt,
+                    image_paths=image_paths,
+                    proxy=proxy,
+                )
+                parsed = self.parse_json_response(response)
+                if type_judgment:
+                    match = parsed.get("target_match")
+                    if match not in self.VALID_MATCH_VALUES:
+                        raise StrictJSONParseError("target_match must be 是 or 不是")
+                return parsed
+            except Exception as exc:
+                last_error = exc
+                current_prompt = (
+                    f"{prompt}\n\n上一次输出格式错误：{exc}。请重新生成，"
+                    f"{self._json_constraint(type_judgment=type_judgment)}"
+                )
+                if attempt == 1:
+                    break
+        raise AIAnalysisException(0, str(last_error or "AI JSON stage failed"))
+
+    async def analyze_text(self, content: str, proxy: str | None = None) -> dict[str, Any]:
+        await self.load_runtime_config()
+        if self.mock_mode:
+            return {"summary": content[:80], "keywords": [], "mock": True}
+        template = (
+            self.prompt_template_override
+            or self._config_value("text_analysis_prompt", "")
+            or self._config_value("prompt_template", DEFAULT_TEXT_ANALYSIS_PROMPT)
+        )
+        prompt = self._render_prompt(
+            template,
+            {"content": content[:12000]},
+        )
+        return await self._call_json_stage(api_config=self._text_api_config(), prompt=prompt, proxy=proxy)
+
+    async def analyze_images(self, images: list[str] | None = None, proxy: str | None = None) -> dict[str, Any]:
+        await self.load_runtime_config()
+        if not images:
+            return {"skipped": True, "reason": "no_images", "images": []}
+        if self.mock_mode:
+            return {"summary": f"{len(images)} images", "images": images, "mock": True}
+        if not self._image_api_config()["enabled"]:
+            return {"skipped": True, "reason": "image_ai_disabled", "images": []}
+        prompt = self._render_prompt(
+            self._config_value("image_analysis_prompt", "") or DEFAULT_IMAGE_ANALYSIS_PROMPT,
+            {"image_count": len(images)},
+        )
+        return await self._call_json_stage(
+            api_config=self._image_api_config(),
+            prompt=prompt,
+            image_paths=images,
+            proxy=proxy,
+        )
+
+    async def judge_target_type(
+        self,
+        text_analysis: dict[str, Any],
+        image_analysis: dict[str, Any],
+        target_type: str | None = None,
+        proxy: str | None = None,
+    ) -> dict[str, Any]:
+        await self.load_runtime_config()
+        resolved_target = target_type or self._config_value("target_article_type", "") or "用户需要的文章类型"
+        if self.mock_mode:
+            return {"target_match": "是", "reason": "mock", "confidence": 1.0, "target_type": resolved_target}
+        prompt = self._render_prompt(
+            self._config_value("type_judgment_prompt", "") or DEFAULT_TYPE_JUDGMENT_PROMPT,
+            {
+                "target_type": resolved_target,
+                "text_analysis": text_analysis,
+                "image_analysis": image_analysis,
+            },
+            type_judgment=True,
+        )
+        result = await self._call_json_stage(
+            api_config=self._text_api_config(),
+            prompt=prompt,
+            type_judgment=True,
+            proxy=proxy,
+        )
+        result["target_type"] = resolved_target
+        return result
+
+    async def analyze_article_pipeline(
+        self,
+        content: str,
+        images: list[str] | None = None,
+        proxy: str | None = None,
+    ) -> dict[str, Any]:
+        await self.load_runtime_config()
+        if not bool(self._config_value("enabled", True)) and not self.mock_mode:
+            return self._skipped_result("AI disabled")
+        try:
+            text_analysis = await self.analyze_text(content, proxy=proxy)
+            image_analysis = await self.analyze_images(images, proxy=proxy)
+            combined = {
+                "text_analysis": text_analysis,
+                "image_analysis": image_analysis,
+            }
+            judgment = await self.judge_target_type(text_analysis, image_analysis, proxy=proxy)
+            match = judgment.get("target_match")
+            ratio = 1.0 if match == "是" else 0.0
+            reason = str(judgment.get("reason") or "")
+            keywords = text_analysis.get("keywords") if isinstance(text_analysis.get("keywords"), list) else []
+            ai_judgment = {
+                "ratio": ratio,
+                "reason": reason,
+                "keywords": keywords,
+                "json_data": combined,
+                "text_analysis": text_analysis,
+                "image_analysis": image_analysis,
+                "type_judgment": judgment,
+                "target_match": match,
+                "target_type": judgment.get("target_type"),
+            }
+            return {
+                "status": "success",
+                "ratio": ratio,
+                "ai_judgment": ai_judgment,
+                "ai_text_analysis": text_analysis,
+                "ai_image_analysis": image_analysis,
+                "ai_type_judgment": judgment,
+                "ai_combined_analysis": combined,
+                "ai_target_match": match,
+                "ai_analysis_error": None,
+            }
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "ratio": 0.0,
+                "ai_judgment": {
+                    "ratio": 0.0,
+                    "reason": f"AI analysis failed: {exc}",
+                    "keywords": [],
+                    "json_data": {},
+                    "target_match": None,
+                },
+                "ai_text_analysis": None,
+                "ai_image_analysis": None,
+                "ai_type_judgment": None,
+                "ai_combined_analysis": None,
+                "ai_target_match": None,
+                "ai_analysis_error": str(exc),
+            }
+
+    def _skipped_result(self, reason: str) -> dict[str, Any]:
+        return {
+            "status": "skipped",
+            "ratio": 0.0,
+            "ai_judgment": {"ratio": 0.0, "reason": reason, "keywords": [], "json_data": {}},
+            "ai_text_analysis": None,
+            "ai_image_analysis": None,
+            "ai_type_judgment": None,
+            "ai_combined_analysis": None,
+            "ai_target_match": None,
+            "ai_analysis_error": reason,
+        }
 
     async def analyze_article(
         self,
@@ -61,181 +357,21 @@ class AIService:
         images: list[str] | None = None,
         proxy: str | None = None,
     ) -> dict[str, Any]:
-        """
-        Analyze article content for sports/relevance.
-
-        Args:
-            content: Article text content
-            images: Optional list of image paths for vision analysis
-            proxy: Optional proxy URL for the request
-
-        Returns:
-            Dict with {ratio, reason, json_data, keywords}
-        """
-        await self.load_runtime_config()
-
-        if self.mock_mode:
-            return self._mock_analysis(content, images)
-
-        # Build prompt for sports relevance analysis
-        prompt = self._build_prompt(content)
-
-        # Prepare messages for LLM
-        messages = [{"role": "user", "content": prompt}]
-
-        # Add images if provided (multimodal)
-        if images:
-            content_parts = [{"type": "text", "text": prompt}]
-            for image_path in images[:5]:  # Limit to 5 images
-                try:
-                    import base64
-
-                    with open(image_path, "rb") as f:
-                        img_data = base64.b64encode(f.read()).decode()
-                        content_parts.append({
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{img_data}"},
-                        })
-                except Exception:
-                    continue
-
-            messages = [{"role": "user", "content": content_parts}]
-
-        # Call LLM API
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    self.api_url,
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                        "temperature": 0.3,
-                    },
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                    proxy=proxy,
-                )
-                response.raise_for_status()
-                result = response.json()
-
-                return self._parse_llm_response(result)
-        except Exception as e:
-            raise AIAnalysisException(0, str(e))
-
-    def _build_prompt(self, content: str) -> str:
-        """Build analysis prompt for LLM."""
-        # Truncate content if too long
-        max_chars = 8000
-        truncated_content = content[:max_chars]
-
-        if self.prompt_template:
-            return self.prompt_template.replace("{{content}}", truncated_content)
-
-        return f"""分析以下文章内容，判断其与体育/赛事的相关程度。
-
-文章内容：
-{truncated_content}
-
-请返回JSON格式的分析结果：
-{{
-    "ratio": 0.0-1.0之间的相关度评分，
-    "reason": "简要说明判断理由",
-    "keywords": ["相关关键词1", "关键词2"],
-    "json_data": {{"额外结构化数据"}}
-}}
-
-只返回JSON，不要有其他内容。"""
-
-    def _parse_llm_response(self, response: dict) -> dict[str, Any]:
-        """Parse LLM API response."""
-        try:
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-
-            # Try to parse as JSON
-            import json
-
-            # Find JSON in response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                json_str = content[json_start:json_end]
-                result = json.loads(json_str)
-                return {
-                    "ratio": result.get("ratio", 0.5),
-                    "reason": result.get("reason", ""),
-                    "json_data": result.get("json_data", {}),
-                    "keywords": result.get("keywords", []),
-                }
-        except Exception:
-            pass
-
-        # Fallback
-        return {
-            "ratio": 0.5,
-            "reason": "解析失败，使用默认值",
-            "json_data": {},
-            "keywords": [],
-        }
-
-    def _mock_analysis(self, content: str, images: list[str] | None = None) -> dict[str, Any]:
-        """
-        Generate mock analysis result without calling LLM.
-
-        For development/testing purposes.
-        """
-        import random
-
-        # Simple keyword-based mock
-        sports_keywords = [
-            "足球", "篮球", "网球", "羽毛球", "乒乓球",
-            "比赛", "赛事", "球队", "球员", "冠军",
-            "联赛", "世界杯", "奥运", "运动", "健身",
-        ]
-
-        content_lower = content.lower()
-        found_keywords = [kw for kw in sports_keywords if kw in content_lower]
-
-        # Calculate mock ratio based on keyword density
-        ratio = min(1.0, len(found_keywords) / 5)
-
-        # Add some randomness for variety
-        ratio = max(0.0, min(1.0, ratio + random.uniform(-0.1, 0.1)))
-
-        reasons = [
-            f"文章包含{len(found_keywords)}个体育相关关键词",
-            "根据内容分析，相关度较高" if ratio > 0.5 else "内容与体育关联度较低",
-            "通过关键词匹配和语义分析得出结论",
-        ]
-
-        return {
-            "ratio": round(ratio, 2),
-            "reason": random.choice(reasons),
-            "json_data": {
-                "mock": True,
-                "keyword_count": len(found_keywords),
-            },
-            "keywords": found_keywords,
-        }
+        """Backward-compatible entry point used by older tests and callers."""
+        result = await self.analyze_article_pipeline(content, images, proxy)
+        self.last_pipeline_result = result
+        return result["ai_judgment"]
 
     async def analyze_batch(
         self,
         articles: list[dict[str, Any]],
         proxy: str | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        Analyze multiple articles in batch.
-
-        Args:
-            articles: List of article dicts with content and optional images
-            proxy: Optional proxy URL
-
-        Returns:
-            List of analysis results
-        """
         results = []
         for article in articles:
-            content = article.get("content", "")
-            images = article.get("images")
-            result = await self.analyze_article(content, images, proxy)
-            results.append(result)
-
+            results.append(await self.analyze_article(article.get("content", ""), article.get("images"), proxy))
         return results
+
+
+class AIService(ArticleAIAnalysisService):
+    """Compatibility alias for the previous AIService name."""

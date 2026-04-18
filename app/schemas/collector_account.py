@@ -28,6 +28,12 @@ class CollectorAccountResponse(BaseModel):
     last_failure_at: datetime | None
     risk_status: RiskStatus
     risk_reason: str | None
+    cool_until: datetime | None = None
+    last_error_category: str | None = None
+    login_proxy_id: int | None = None
+    login_proxy_locked: bool = True
+    last_login_proxy_ip: str | None = None
+    login_proxy_changed_at: datetime | None = None
     metadata_json: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -38,3 +44,7 @@ class CollectorAccountResponse(BaseModel):
 class CollectorAccountListResponse(BaseModel):
     total: int
     items: list[CollectorAccountResponse]
+
+
+class CollectorLoginProxyUpdate(BaseModel):
+    login_proxy_id: int | None

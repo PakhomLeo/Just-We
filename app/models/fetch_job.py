@@ -2,6 +2,7 @@
 
 import enum
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -10,11 +11,16 @@ from app.models.base import Base, TimestampMixin
 from app.models.collector_account import CollectorAccountType
 from app.models.enum_utils import value_enum
 
+if TYPE_CHECKING:
+    from app.models.collector_account import CollectorAccount
+    from app.models.monitored_account import MonitoredAccount
+
 
 class FetchJobType(str, enum.Enum):
     UPDATE_LIST = "update_list"
     ARTICLE_DETAIL = "article_detail"
     FULL_SYNC = "full_sync"
+    HISTORY_BACKFILL = "history_backfill"
 
 
 class FetchJobStatus(str, enum.Enum):

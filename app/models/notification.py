@@ -1,11 +1,18 @@
 """Notification model for alerts and updates."""
 
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, ForeignKey, JSON, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.article import Article
+    from app.models.collector_account import CollectorAccount
+    from app.models.monitored_account import MonitoredAccount
+    from app.models.user import User
 
 
 class Notification(Base, TimestampMixin):
@@ -19,12 +26,6 @@ class Notification(Base, TimestampMixin):
         nullable=True,
         index=True,
         comment="通知所属平台用户",
-    )
-    account_id: Mapped[int | None] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-        comment="关联账号 ID",
     )
     collector_account_id: Mapped[int | None] = mapped_column(
         ForeignKey("collector_accounts.id", ondelete="CASCADE"),

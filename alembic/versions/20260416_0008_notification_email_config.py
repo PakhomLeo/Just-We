@@ -18,6 +18,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("notification_email_configs"):
+        return
+
     op.create_table(
         "notification_email_configs",
         sa.Column("enabled", sa.Boolean(), nullable=False),
@@ -36,4 +41,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("notification_email_configs")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("notification_email_configs"):
+        op.drop_table("notification_email_configs")

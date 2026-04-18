@@ -5,13 +5,12 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from redis.asyncio import Redis
 
 from app.core.database import get_db
 from app.core.redis import get_redis
 from app.core.config import get_settings
-from app.core.exceptions import UnauthorizedException, ForbiddenException
+from app.core.exceptions import UnauthorizedException
 from app.models.user import User
 
 

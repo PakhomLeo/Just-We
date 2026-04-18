@@ -8,14 +8,6 @@ from app.schemas.auth import (
     UserResponse,
     UserUpdate,
 )
-from app.schemas.account import (
-    AccountCreate,
-    AccountUpdate,
-    AccountResponse,
-    AccountListResponse,
-    ManualOverrideRequest,
-    AccountHistoryResponse,
-)
 from app.schemas.article import (
     ArticleResponse,
     ArticleListResponse,
@@ -50,12 +42,6 @@ __all__ = [
     "TokenPayload",
     "UserResponse",
     "UserUpdate",
-    "AccountCreate",
-    "AccountUpdate",
-    "AccountResponse",
-    "AccountListResponse",
-    "ManualOverrideRequest",
-    "AccountHistoryResponse",
     "ArticleResponse",
     "ArticleListResponse",
     "ArticleCreate",

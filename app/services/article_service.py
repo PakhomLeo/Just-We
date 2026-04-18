@@ -24,22 +24,22 @@ class ArticleService:
         owner_user_id = None if current_user.role.value == "admin" else current_user.id
         return await self.article_repo.get_visible_by_id(article_id, owner_user_id=owner_user_id)
 
-    async def get_articles_by_account(
+    async def get_articles_by_monitored_account(
         self,
-        account_id: int,
+        monitored_account_id: int,
         skip: int = 0,
         limit: int = 50,
     ) -> list[Article]:
-        """Get articles by account ID."""
-        return await self.article_repo.get_by_account(account_id, skip, limit)
+        """Get articles by monitored account ID."""
+        return await self.article_repo.get_by_monitored_account(monitored_account_id, skip, limit)
 
-    async def get_recent_articles(
+    async def get_recent_articles_by_monitored_account(
         self,
-        account_id: int,
+        monitored_account_id: int,
         hours: int = 24,
     ) -> list[Article]:
-        """Get recent articles for an account."""
-        return await self.article_repo.get_recent_articles(account_id, hours)
+        """Get recent articles for a monitored account."""
+        return await self.article_repo.get_recent_articles(monitored_account_id, hours)
 
     async def get_article_by_url(self, url: str) -> Article | None:
         """Get article by URL."""
@@ -47,18 +47,27 @@ class ArticleService:
 
     async def save_article(
         self,
-        account_id: int | None,
         title: str,
         content: str,
         url: str,
+        content_html: str | None = None,
+        content_type: str | None = None,
         raw_content: str | None = None,
         images: list[str] | None = None,
+        original_images: list[str] | None = None,
         monitored_account_id: int | None = None,
         cover_image: str | None = None,
         author: str | None = None,
         published_at: datetime | None = None,
         ai_relevance_ratio: float | None = None,
         ai_judgment: dict[str, Any] | None = None,
+        ai_text_analysis: dict[str, Any] | None = None,
+        ai_image_analysis: dict[str, Any] | None = None,
+        ai_type_judgment: dict[str, Any] | None = None,
+        ai_combined_analysis: dict[str, Any] | None = None,
+        ai_target_match: str | None = None,
+        ai_analysis_status: str | None = None,
+        ai_analysis_error: str | None = None,
         fetch_mode: str | None = None,
         content_fingerprint: str | None = None,
         source_payload: dict[str, Any] | None = None,
@@ -70,17 +79,26 @@ class ArticleService:
             # Update existing article
             return await self.article_repo.update(
                 existing,
-                account_id=account_id,
                 monitored_account_id=monitored_account_id,
                 title=title,
                 content=content,
+                content_html=content_html,
+                content_type=content_type,
                 raw_content=raw_content,
                 images=images or [],
+                original_images=original_images or [],
                 cover_image=cover_image,
                 author=author,
                 published_at=published_at,
                 ai_relevance_ratio=ai_relevance_ratio,
                 ai_judgment=ai_judgment,
+                ai_text_analysis=ai_text_analysis,
+                ai_image_analysis=ai_image_analysis,
+                ai_type_judgment=ai_type_judgment,
+                ai_combined_analysis=ai_combined_analysis,
+                ai_target_match=ai_target_match,
+                ai_analysis_status=ai_analysis_status,
+                ai_analysis_error=ai_analysis_error,
                 fetch_mode=fetch_mode,
                 content_fingerprint=content_fingerprint,
                 source_payload=source_payload,
@@ -88,18 +106,27 @@ class ArticleService:
 
         # Create new article
         return await self.article_repo.create(
-            account_id=account_id,
             monitored_account_id=monitored_account_id,
             title=title,
             content=content,
+            content_html=content_html,
+            content_type=content_type,
             raw_content=raw_content,
             images=images or [],
+            original_images=original_images or [],
             cover_image=cover_image,
             url=url,
             author=author,
             published_at=published_at,
             ai_relevance_ratio=ai_relevance_ratio,
             ai_judgment=ai_judgment,
+            ai_text_analysis=ai_text_analysis,
+            ai_image_analysis=ai_image_analysis,
+            ai_type_judgment=ai_type_judgment,
+            ai_combined_analysis=ai_combined_analysis,
+            ai_target_match=ai_target_match,
+            ai_analysis_status=ai_analysis_status,
+            ai_analysis_error=ai_analysis_error,
             fetch_mode=fetch_mode,
             content_fingerprint=content_fingerprint,
             source_payload=source_payload,
@@ -109,7 +136,6 @@ class ArticleService:
         self,
         page: int = 1,
         page_size: int = 50,
-        account_id: int | None = None,
         monitored_account_id: int | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
@@ -121,7 +147,6 @@ class ArticleService:
         return await self.article_repo.get_articles_paginated(
             skip=skip,
             limit=page_size,
-            account_id=account_id,
             monitored_account_id=monitored_account_id,
             start_date=start_date,
             end_date=end_date,
@@ -133,6 +158,13 @@ class ArticleService:
         article_id: int,
         ai_relevance_ratio: float,
         ai_judgment: dict[str, Any],
+        ai_text_analysis: dict[str, Any] | None = None,
+        ai_image_analysis: dict[str, Any] | None = None,
+        ai_type_judgment: dict[str, Any] | None = None,
+        ai_combined_analysis: dict[str, Any] | None = None,
+        ai_target_match: str | None = None,
+        ai_analysis_status: str | None = None,
+        ai_analysis_error: str | None = None,
     ) -> Article | None:
         """Update article with AI analysis results."""
         article = await self.article_repo.get_by_id(article_id)
@@ -142,8 +174,15 @@ class ArticleService:
             article,
             ai_relevance_ratio=ai_relevance_ratio,
             ai_judgment=ai_judgment,
+            ai_text_analysis=ai_text_analysis,
+            ai_image_analysis=ai_image_analysis,
+            ai_type_judgment=ai_type_judgment,
+            ai_combined_analysis=ai_combined_analysis,
+            ai_target_match=ai_target_match,
+            ai_analysis_status=ai_analysis_status,
+            ai_analysis_error=ai_analysis_error,
         )
 
-    async def get_article_count(self, account_id: int) -> int:
-        """Get total article count for an account."""
-        return await self.article_repo.get_count_by_account(account_id)
+    async def get_article_count(self, monitored_account_id: int) -> int:
+        """Get total article count for a monitored account."""
+        return await self.article_repo.get_count_by_monitored_account(monitored_account_id)

@@ -3,7 +3,14 @@
 from fastapi import APIRouter
 
 from app.core.dependencies import AdminUser, DbSession
-from app.schemas.system_config import AIConfigPayload, FetchPolicyPayload, NotificationEmailConfigPayload
+from app.schemas.system_config import (
+    AIConfigPayload,
+    FetchPolicyPayload,
+    NotificationEmailConfigPayload,
+    NotificationPolicyPayload,
+    ProxyPolicyPayload,
+    RateLimitPolicyPayload,
+)
 from app.services.system_config_service import SystemConfigService
 
 
@@ -34,6 +41,30 @@ async def update_fetch_policy(payload: FetchPolicyPayload, db: DbSession, curren
     return FetchPolicyPayload.model_validate(config, from_attributes=True)
 
 
+@router.get("/rate-limit-policy", response_model=RateLimitPolicyPayload)
+async def get_rate_limit_policy(db: DbSession, current_user: AdminUser):
+    payload = await SystemConfigService(db).get_rate_limit_policy()
+    return RateLimitPolicyPayload(**payload)
+
+
+@router.put("/rate-limit-policy", response_model=RateLimitPolicyPayload)
+async def update_rate_limit_policy(payload: RateLimitPolicyPayload, db: DbSession, current_user: AdminUser):
+    config = await SystemConfigService(db).update_rate_limit_policy(**payload.model_dump())
+    return RateLimitPolicyPayload(**(config.rate_limit_policy or {}))
+
+
+@router.get("/proxy-policy", response_model=ProxyPolicyPayload)
+async def get_proxy_policy(db: DbSession, current_user: AdminUser):
+    payload = await SystemConfigService(db).get_proxy_policy()
+    return ProxyPolicyPayload(**payload)
+
+
+@router.put("/proxy-policy", response_model=ProxyPolicyPayload)
+async def update_proxy_policy(payload: ProxyPolicyPayload, db: DbSession, current_user: AdminUser):
+    result = await SystemConfigService(db).update_proxy_policy(**payload.model_dump())
+    return ProxyPolicyPayload(**result)
+
+
 @router.get("/notification-email", response_model=NotificationEmailConfigPayload)
 async def get_notification_email_config(db: DbSession, current_user: AdminUser):
     config = await SystemConfigService(db).get_or_create_notification_email_config()
@@ -44,3 +75,15 @@ async def get_notification_email_config(db: DbSession, current_user: AdminUser):
 async def update_notification_email_config(payload: NotificationEmailConfigPayload, db: DbSession, current_user: AdminUser):
     config = await SystemConfigService(db).update_notification_email_config(**payload.model_dump())
     return NotificationEmailConfigPayload.model_validate(config, from_attributes=True)
+
+
+@router.get("/notification-policy", response_model=NotificationPolicyPayload)
+async def get_notification_policy(db: DbSession, current_user: AdminUser):
+    payload = await SystemConfigService(db).get_notification_policy()
+    return NotificationPolicyPayload(**payload)
+
+
+@router.put("/notification-policy", response_model=NotificationPolicyPayload)
+async def update_notification_policy(payload: NotificationPolicyPayload, db: DbSession, current_user: AdminUser):
+    result = await SystemConfigService(db).update_notification_policy(**payload.model_dump())
+    return NotificationPolicyPayload(**result)

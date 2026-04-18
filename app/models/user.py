@@ -1,6 +1,7 @@
 """User model for authentication with fastapi-users."""
 
 import enum
+import secrets
 import uuid
 from datetime import datetime
 
@@ -57,6 +58,13 @@ class User(UUIDIDMixin, Base):
     last_login: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+    aggregate_feed_token: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        index=True,
+        nullable=False,
+        default=lambda: secrets.token_urlsafe(32),
     )
 
     def __repr__(self) -> str:

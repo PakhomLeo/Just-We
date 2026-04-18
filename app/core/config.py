@@ -21,6 +21,10 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/dynamicwepubmonitor",
         description="Database connection URL",
     )
+    database_echo: bool = Field(
+        default=False,
+        description="Enable verbose SQLAlchemy statement logging",
+    )
 
     # Redis
     redis_url: str = Field(
@@ -90,7 +94,7 @@ class Settings(BaseSettings):
     # QR Code
     qr_code_expire_seconds: int = Field(default=180)
     weread_platform_url: str | None = Field(
-        default=None,
+        default="https://weread.111965.xyz",
         description="External WeRead login platform URL compatible with wewe-rss platform API",
     )
     weread_platform_timeout_seconds: int = Field(
@@ -108,10 +112,6 @@ class Settings(BaseSettings):
     collector_health_check_interval_hours: int = Field(
         default=6,
         description="Interval in hours for periodic collector account health checks",
-    )
-    alert_webhook_url: str | None = Field(
-        default=None,
-        description="Optional webhook URL for delivering alert notifications",
     )
     default_admin_alias: str = Field(
         default="admin",

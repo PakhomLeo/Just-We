@@ -1,8 +1,10 @@
 """Monitored public account model."""
 
 import enum
+import secrets
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, Uuid, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -10,6 +12,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 from app.models.collector_account import CollectorAccountType
 from app.models.enum_utils import value_enum
+
+if TYPE_CHECKING:
+    from app.models.article import Article
+    from app.models.user import User
 
 
 class MonitoredAccountStatus(str, enum.Enum):
@@ -33,9 +39,18 @@ class MonitoredAccount(Base, TimestampMixin):
     )
     biz: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     fakeid: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    feed_token: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        index=True,
+        nullable=False,
+        default=lambda: secrets.token_urlsafe(32),
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mp_intro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     current_tier: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     composite_score: Mapped[float] = mapped_column(Float, default=50.0, nullable=False)
     primary_fetch_mode: Mapped[CollectorAccountType] = mapped_column(

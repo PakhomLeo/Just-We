@@ -2,8 +2,8 @@
 
 from app.models.base import Base, TimestampMixin
 from app.models.user import User, UserRole
-from app.models.account import Account, AccountType, AccountStatus
 from app.models.article import Article
+from app.models.article_export import ArticleExportRecord, ArticleExportStatus
 from app.models.collector_account import (
     CollectorAccount,
     CollectorAccountStatus,
@@ -12,9 +12,17 @@ from app.models.collector_account import (
     RiskStatus,
 )
 from app.models.fetch_job import FetchJob, FetchJobStatus, FetchJobType
-from app.models.proxy import Proxy, ServiceType
+from app.models.proxy import (
+    Proxy,
+    ProxyKind,
+    ProxyRotationMode,
+    ProxyServiceBinding,
+    ProxyServiceKey,
+    ServiceType,
+)
 from app.models.monitored_account import MonitoredAccount, MonitoredAccountStatus
 from app.models.system_config import AIAnalysisConfig, FetchPolicy, NotificationEmailConfig
+from app.models.weight_config import WeightConfig
 from app.models.log import OperationLog
 from app.models.notification import Notification
 
@@ -23,10 +31,9 @@ __all__ = [
     "TimestampMixin",
     "User",
     "UserRole",
-    "Account",
-    "AccountType",
-    "AccountStatus",
     "Article",
+    "ArticleExportRecord",
+    "ArticleExportStatus",
     "CollectorAccount",
     "CollectorAccountStatus",
     "CollectorAccountType",
@@ -36,12 +43,17 @@ __all__ = [
     "FetchJobStatus",
     "FetchJobType",
     "Proxy",
+    "ProxyKind",
+    "ProxyRotationMode",
+    "ProxyServiceBinding",
+    "ProxyServiceKey",
     "ServiceType",
     "MonitoredAccount",
     "MonitoredAccountStatus",
     "AIAnalysisConfig",
     "FetchPolicy",
     "NotificationEmailConfig",
+    "WeightConfig",
     "OperationLog",
     "Notification",
 ]

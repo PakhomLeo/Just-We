@@ -17,7 +17,7 @@ class ImageDownloader:
     Utility for downloading and localizing images.
 
     Images are downloaded and saved to a local directory structure:
-    media/articles/{account_id}/{image_hash}.{ext}
+    media/articles/{monitored_account_id}/{image_hash}.{ext}
     """
 
     def __init__(
@@ -72,7 +72,7 @@ class ImageDownloader:
     async def download_image(
         self,
         url: str,
-        account_id: int | str,
+        monitored_account_id: int | str,
         proxy: str | None = None,
     ) -> str | None:
         """
@@ -80,7 +80,7 @@ class ImageDownloader:
 
         Args:
             url: Image URL
-            account_id: Account ID for directory structure
+            monitored_account_id: Monitored account ID for directory structure
             proxy: Optional proxy URL
 
         Returns:
@@ -105,10 +105,10 @@ class ImageDownloader:
                 content_type = self._get_content_type(response.headers)
                 ext = self._get_extension(content_type, url)
 
-                account_dir = self.base_dir / str(account_id)
-                account_dir.mkdir(parents=True, exist_ok=True)
+                monitored_account_dir = self.base_dir / str(monitored_account_id)
+                monitored_account_dir.mkdir(parents=True, exist_ok=True)
 
-                local_path = account_dir / f"{content_hash}.{ext}"
+                local_path = monitored_account_dir / f"{content_hash}.{ext}"
 
                 # Save file
                 with open(local_path, "wb") as f:
@@ -121,7 +121,7 @@ class ImageDownloader:
     async def download_multiple(
         self,
         urls: list[str],
-        account_id: int | str,
+        monitored_account_id: int | str,
         proxy: str | None = None,
         max_concurrent: int = 5,
     ) -> list[str | None]:
@@ -130,7 +130,7 @@ class ImageDownloader:
 
         Args:
             urls: List of image URLs
-            account_id: Account ID for directory structure
+            monitored_account_id: Monitored account ID for directory structure
             proxy: Optional proxy URL
             max_concurrent: Maximum concurrent downloads
 
@@ -141,7 +141,7 @@ class ImageDownloader:
 
         async def download_with_limit(url: str) -> str | None:
             async with semaphore:
-                return await self.download_image(url, account_id, proxy)
+                return await self.download_image(url, monitored_account_id, proxy)
 
         tasks = [download_with_limit(url) for url in urls]
         return await asyncio.gather(*tasks)
@@ -161,29 +161,29 @@ class ImageDownloader:
                 return local_path
         return f"{settings.media_url_prefix.rstrip('/')}/{relative.as_posix()}"
 
-    def delete_account_images(self, account_id: int) -> int:
+    def delete_monitored_account_images(self, monitored_account_id: int) -> int:
         """
-        Delete all images for an account.
+        Delete all images for a monitored account.
 
         Args:
-            account_id: Account ID
+            monitored_account_id: Monitored account ID
 
         Returns:
             Number of files deleted
         """
-        account_dir = self.base_dir / str(account_id)
-        if not account_dir.exists():
+        monitored_account_dir = self.base_dir / str(monitored_account_id)
+        if not monitored_account_dir.exists():
             return 0
 
         count = 0
-        for file in account_dir.iterdir():
+        for file in monitored_account_dir.iterdir():
             if file.is_file():
                 file.unlink()
                 count += 1
 
         # Try to remove directory if empty
         try:
-            account_dir.rmdir()
+            monitored_account_dir.rmdir()
         except Exception:
             pass
 

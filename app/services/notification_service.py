@@ -2,12 +2,12 @@
 
 import uuid
 import asyncio
-from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 import smtplib
 from typing import Any
 
+import httpx
 from sqlalchemy import Select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from app.models.collector_account import CollectorAccount, CollectorHealthStatus
 from app.models.monitored_account import MonitoredAccount
 from app.models.notification import Notification
 from app.services.system_config_service import SystemConfigService
+from app.services.weight_config_service import WeightConfigService
 from app.repositories.base import BaseRepository
 
 
@@ -58,38 +59,51 @@ class NotificationService:
 
     async def _deliver_notification(self, notification: Notification) -> None:
         config = await SystemConfigService(self.db).get_or_create_notification_email_config()
-        if not config.enabled or not config.smtp_host or not config.to_emails or not config.from_email:
-            return
-        message = EmailMessage()
-        message["Subject"] = f"[DynamicWePubMonitor] {notification.title}"
-        message["From"] = config.from_email
-        message["To"] = ", ".join(config.to_emails)
-        message.set_content(
-            "\n".join(
-                [
-                    f"通知类型: {notification.notification_type}",
-                    f"标题: {notification.title}",
-                    f"内容: {notification.content}",
-                    f"抓取账号 ID: {notification.collector_account_id or '-'}",
-                    f"监测对象 ID: {notification.monitored_account_id or '-'}",
-                    f"文章 ID: {notification.article_id or '-'}",
-                    f"时间: {notification.created_at.isoformat() if notification.created_at else '-'}",
-                ]
-            )
-        )
+        lines = [
+            f"通知类型: {notification.notification_type}",
+            f"标题: {notification.title}",
+            f"内容: {notification.content}",
+            f"抓取账号 ID: {notification.collector_account_id or '-'}",
+            f"监测对象 ID: {notification.monitored_account_id or '-'}",
+            f"文章 ID: {notification.article_id or '-'}",
+            f"时间: {notification.created_at.isoformat() if notification.created_at else '-'}",
+        ]
+        if config.enabled and config.smtp_host and config.to_emails and config.from_email:
+            message = EmailMessage()
+            message["Subject"] = f"[Just-We] {notification.title}"
+            message["From"] = config.from_email
+            message["To"] = ", ".join(config.to_emails)
+            message.set_content("\n".join(lines))
 
-        def _send() -> None:
-            with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10) as server:
-                if config.use_tls:
-                    server.starttls()
-                if config.smtp_username:
-                    server.login(config.smtp_username, config.smtp_password)
-                server.send_message(message)
+            def _send() -> None:
+                with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=10) as server:
+                    if config.use_tls:
+                        server.starttls()
+                    if config.smtp_username:
+                        server.login(config.smtp_username, config.smtp_password)
+                    server.send_message(message)
 
-        try:
-            await asyncio.to_thread(_send)
-        except Exception:
-            return
+            try:
+                await asyncio.to_thread(_send)
+            except Exception:
+                pass
+        if config.webhook_enabled and config.webhook_url:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    await client.post(
+                        config.webhook_url,
+                        json={
+                            "type": notification.notification_type,
+                            "title": notification.title,
+                            "content": notification.content,
+                            "collector_account_id": notification.collector_account_id,
+                            "monitored_account_id": notification.monitored_account_id,
+                            "article_id": notification.article_id,
+                            "payload": notification.payload or {},
+                        },
+                    )
+            except Exception:
+                pass
 
     async def create_notification(
         self,
@@ -97,7 +111,6 @@ class NotificationService:
         notification_type: str,
         title: str,
         content: str,
-        account_id: int | None = None,
         collector_account_id: int | None = None,
         monitored_account_id: int | None = None,
         article_id: int | None = None,
@@ -119,7 +132,6 @@ class NotificationService:
             notification_type=notification_type,
             title=title,
             content=content,
-            account_id=account_id,
             collector_account_id=collector_account_id,
             monitored_account_id=monitored_account_id,
             article_id=article_id,
@@ -205,7 +217,8 @@ class NotificationService:
         relevance_ratio: float,
     ) -> Notification | None:
         """Check if article has high relevance and create notification."""
-        if relevance_ratio >= settings.high_relevance_threshold:
+        config = await WeightConfigService(self.db).get_or_create()
+        if relevance_ratio >= config.high_relevance_threshold:
             return await self.create_notification(
                 owner_user_id=owner_user_id,
                 notification_type="high_relevance",
@@ -229,7 +242,8 @@ class NotificationService:
         consecutive_count: int,
     ) -> Notification | None:
         """Notify when AI analysis shows consecutive low relevance."""
-        if consecutive_count >= settings.ai_consecutive_low_threshold:
+        config = await WeightConfigService(self.db).get_or_create()
+        if consecutive_count >= config.ai_consecutive_low_threshold:
             return await self.create_notification(
                 owner_user_id=owner_user_id,
                 notification_type="ai_consecutive_low",
@@ -306,13 +320,14 @@ class NotificationService:
     ) -> Notification:
         remaining = expires_at - datetime.now(timezone.utc)
         hours_left = max(int(remaining.total_seconds() // 3600), 0)
+        bucket = 6 if hours_left <= 6 else 24
         return await self.create_notification(
             owner_user_id=account.owner_user_id,
-            notification_type="collector_expiring_soon",
+            notification_type=f"collector_expiring_{bucket}h",
             title="抓取账号即将过期",
             content=f"{account.display_name} 将在约 {hours_left} 小时后过期，请尽快重新登录。",
             collector_account_id=account.id,
-            payload={"expires_at": expires_at.isoformat()},
+            payload={"expires_at": expires_at.isoformat(), "bucket_hours": bucket},
         )
 
     async def get_unread_count(self, owner_user_id: uuid.UUID | None = None) -> int:

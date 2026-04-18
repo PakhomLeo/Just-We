@@ -17,6 +17,8 @@ wheels/
 *.db
 *.sqlite
 *.sqlite3
+media/
+external_references/
 
 # Node / frontend
 node_modules/

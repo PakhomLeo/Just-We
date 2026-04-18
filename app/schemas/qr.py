@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.models.collector_account import CollectorAccountType
 
@@ -10,7 +10,12 @@ from app.models.collector_account import CollectorAccountType
 class QRGenerateRequest(BaseModel):
     """Schema for QR code generation request."""
 
-    type: CollectorAccountType = CollectorAccountType.MP_ADMIN
+    type: CollectorAccountType = Field(
+        default=CollectorAccountType.MP_ADMIN,
+        validation_alias=AliasChoices("type", "account_type"),
+        serialization_alias="type",
+    )
+    login_proxy_id: int | None = Field(default=None, description="mp_admin 登录固定代理 ID")
 
 
 class QRGenerateResponse(BaseModel):
@@ -20,6 +25,7 @@ class QRGenerateResponse(BaseModel):
     ticket: str
     expire_at: datetime
     provider: str | None = None
+    login_proxy_id: int | None = None
 
 
 class QRStatusResponse(BaseModel):

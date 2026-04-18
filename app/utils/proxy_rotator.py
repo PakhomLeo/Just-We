@@ -1,6 +1,5 @@
 """Proxy rotator utility for managing proxy rotation."""
 
-from typing import Any
 
 from app.models.proxy import Proxy, ServiceType
 

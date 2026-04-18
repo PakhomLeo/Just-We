@@ -1,7 +1,6 @@
 """Article API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, status, Query
 
 from app.core.dependencies import DbSession, CurrentUser
 from app.schemas.article import (
@@ -10,6 +9,7 @@ from app.schemas.article import (
     ArticleWithAccountResponse,
 )
 from app.services.article_service import ArticleService
+from app.services.ai_service import AIService
 
 
 router = APIRouter(prefix="/articles", tags=["Articles"])
@@ -19,18 +19,27 @@ def _article_to_response(article) -> ArticleWithAccountResponse:
     """Convert Article model to ArticleWithAccountResponse."""
     return ArticleWithAccountResponse(
         id=article.id,
-        account_id=article.account_id,
         monitored_account_id=article.monitored_account_id,
         title=article.title,
         content=article.content,
+        content_html=article.content_html,
+        content_type=article.content_type,
         raw_content=article.raw_content,
         images=article.images or [],
+        original_images=article.original_images or [],
         cover_image=article.cover_image,
         url=article.url,
         author=article.author,
         published_at=article.published_at,
         ai_relevance_ratio=article.ai_relevance_ratio,
         ai_judgment=article.ai_judgment,
+        ai_text_analysis=article.ai_text_analysis,
+        ai_image_analysis=article.ai_image_analysis,
+        ai_type_judgment=article.ai_type_judgment,
+        ai_combined_analysis=article.ai_combined_analysis,
+        ai_target_match=article.ai_target_match,
+        ai_analysis_status=article.ai_analysis_status,
+        ai_analysis_error=article.ai_analysis_error,
         fetch_mode=article.fetch_mode,
         source_payload=article.source_payload,
         created_at=article.created_at,
@@ -38,7 +47,7 @@ def _article_to_response(article) -> ArticleWithAccountResponse:
         account_name=(
             article.monitored_account.name
             if getattr(article, "monitored_account", None)
-            else (article.account.name if article.account else None)
+            else None
         ),
     )
 
@@ -49,7 +58,6 @@ async def list_articles(
     current_user: CurrentUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
-    account_id: int | None = None,
     monitored_account_id: int | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -72,7 +80,6 @@ async def list_articles(
     articles, total = await article_service.get_articles_paginated(
         page=page,
         page_size=page_size,
-        account_id=account_id,
         monitored_account_id=monitored_account_id,
         start_date=start_dt,
         end_date=end_dt,
@@ -92,53 +99,6 @@ async def list_articles(
         articles = filtered
         total = len(filtered)
 
-    total_pages = (total + page_size - 1) // page_size
-
-    return ArticleListResponse(
-        total=total,
-        items=[_article_to_response(a) for a in articles],
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages,
-    )
-
-
-@router.get("/{article_id}", response_model=ArticleResponse)
-async def get_article(
-    article_id: int,
-    db: DbSession,
-    current_user: CurrentUser,
-):
-    """Get article by ID."""
-    article_service = ArticleService(db)
-
-    article = await article_service.get_visible_article(article_id, current_user)
-    if article is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Article {article_id} not found",
-        )
-
-    return ArticleResponse.model_validate(article)
-
-
-@router.get("/account/{account_id}", response_model=ArticleListResponse)
-async def get_account_articles(
-    account_id: int,
-    db: DbSession,
-    current_user: CurrentUser,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
-):
-    """Get articles for a specific account."""
-    article_service = ArticleService(db)
-
-    articles, total = await article_service.get_articles_paginated(
-        page=page,
-        page_size=page_size,
-        account_id=account_id,
-        current_user=current_user,
-    )
     total_pages = (total + page_size - 1) // page_size
 
     return ArticleListResponse(
@@ -174,3 +134,49 @@ async def get_monitored_account_articles(
         page_size=page_size,
         total_pages=total_pages,
     )
+
+
+@router.get("/{article_id}", response_model=ArticleResponse)
+async def get_article(
+    article_id: int,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    """Get article by ID."""
+    article_service = ArticleService(db)
+
+    article = await article_service.get_visible_article(article_id, current_user)
+    if article is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Article {article_id} not found",
+        )
+
+    return ArticleResponse.model_validate(article)
+
+
+@router.post("/{article_id}/reanalyze-ai", response_model=ArticleResponse)
+async def reanalyze_article_ai(
+    article_id: int,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    """Run the three-stage AI pipeline again for a visible article."""
+    article_service = ArticleService(db)
+    article = await article_service.get_visible_article(article_id, current_user)
+    if article is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Article {article_id} not found")
+    pipeline = await AIService(db=db).analyze_article_pipeline(article.content or "", article.images or [])
+    updated = await article_service.update_ai_analysis(
+        article_id=article.id,
+        ai_relevance_ratio=pipeline.get("ratio", 0.0),
+        ai_judgment=pipeline.get("ai_judgment") or {},
+        ai_text_analysis=pipeline.get("ai_text_analysis"),
+        ai_image_analysis=pipeline.get("ai_image_analysis"),
+        ai_type_judgment=pipeline.get("ai_type_judgment"),
+        ai_combined_analysis=pipeline.get("ai_combined_analysis"),
+        ai_target_match=pipeline.get("ai_target_match"),
+        ai_analysis_status=pipeline.get("status"),
+        ai_analysis_error=pipeline.get("ai_analysis_error"),
+    )
+    return ArticleResponse.model_validate(updated)

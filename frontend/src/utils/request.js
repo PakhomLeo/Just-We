@@ -24,12 +24,17 @@ request.interceptors.request.use(
 request.interceptors.response.use(
   response => response,
   error => {
-    if (error.response?.status === 401) {
+    const isLoginRequest = error.config?.url?.includes('/auth/login')
+    if (error.response?.status === 401 && !isLoginRequest) {
       const authStore = useAuthStore()
       authStore.logout()
       router.push({ name: 'Login' })
       return Promise.reject(error)
     }
+    if (error.response?.status === 401 && isLoginRequest) {
+      return Promise.reject(error)
+    }
+    error._globalMessageShown = true
     ElMessage.error(error.response?.data?.detail || error.response?.data?.error || 'Request failed')
     return Promise.reject(error)
   }

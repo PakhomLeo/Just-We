@@ -22,8 +22,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // Split echarts into its own chunk
-          'echarts': ['echarts'],
           // Split element-plus into its own chunk
           'element-plus': ['element-plus'],
         }
@@ -38,7 +36,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true
       }
     }

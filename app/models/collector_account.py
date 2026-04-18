@@ -3,12 +3,17 @@
 import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
 from app.models.enum_utils import value_enum
+
+if TYPE_CHECKING:
+    from app.models.proxy import Proxy
+    from app.models.user import User
 
 
 class CollectorAccountType(str, enum.Enum):
@@ -73,6 +78,41 @@ class CollectorAccount(Base, TimestampMixin):
         nullable=False,
     )
     risk_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    cool_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="账号冷却截止时间",
+    )
+    last_error_category: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="最近一次抓取失败分类",
+    )
+    login_proxy_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("proxies.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="登录会话锁定代理",
+    )
+    login_proxy_locked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="登录成功后是否锁定代理",
+    )
+    last_login_proxy_ip: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+        comment="最近登录出口 IP",
+    )
+    login_proxy_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="登录代理最近变更时间",
+    )
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     owner: Mapped["User"] = relationship("User")
+    login_proxy: Mapped["Proxy | None"] = relationship("Proxy")

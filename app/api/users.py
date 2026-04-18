@@ -1,10 +1,8 @@
 """User management API routes (admin only)."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
-from pydantic import Field
-from typing import Annotated
+from fastapi import APIRouter, HTTPException, status, Query
 
-from app.core.dependencies import DbSession, CurrentUser, AdminUser
+from app.core.dependencies import DbSession, AdminUser
 from app.schemas.auth import UserResponse, RegisterRequest, UserUpdate
 from app.services.auth_service import AuthService
 from app.models.user import UserRole

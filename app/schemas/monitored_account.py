@@ -27,13 +27,15 @@ class MonitoredAccountResponse(BaseModel):
     owner_user_id: UUID
     biz: str
     fakeid: str | None
+    feed_token: str
     name: str
     source_url: str
     avatar_url: str | None
+    mp_intro: str | None = None
+    metadata_json: dict | None = None
     current_tier: int
     composite_score: float
-    primary_fetch_mode: CollectorAccountType
-    fallback_fetch_mode: CollectorAccountType | None
+    primary_fetch_mode: CollectorAccountType = Field(exclude=True)
     status: MonitoredAccountStatus
     last_polled_at: datetime | None
     last_published_at: datetime | None
@@ -50,6 +52,11 @@ class MonitoredAccountResponse(BaseModel):
     @property
     def score(self) -> float:
         return self.composite_score
+
+    @computed_field
+    @property
+    def fetch_mode(self) -> CollectorAccountType:
+        return self.primary_fetch_mode
 
     model_config = {"from_attributes": True}
 

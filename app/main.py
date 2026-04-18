@@ -1,11 +1,48 @@
 """
-DynamicWePubMonitor - Main Application Entry Point
+Just-We - Main Application Entry Point
 
 微信公众号智能权重监控系统
 """
 
 import warnings
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
+
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.api import (
+    article_exports_router,
+    articles_router,
+    auth_router,
+    collector_accounts_router,
+    feeds_router,
+    fetch_jobs_router,
+    image_router,
+    logs_router,
+    monitored_accounts_router,
+    notifications_router,
+    proxies_router,
+    public_feeds_router,
+    rate_limit_router,
+    system_config_router,
+    tasks_router,
+    users_router,
+    weight_router,
+)
+from app.core.config import get_settings
+from app.core.database import close_db, get_db_context, init_db
+from app.core.exceptions import AppException
+from app.core.redis import close_redis
+from app.repositories.monitored_account_repo import MonitoredAccountRepository
+from app.services.bootstrap_service import BootstrapService
+from app.services.scheduler_service import SchedulerService, start_scheduler, stop_scheduler
+from app.tasks.fetch_task import run_single_account
+from app.tasks.health_task import run_all_collector_health_checks
 
 # Suppress known deprecation warnings from third-party libraries
 # passlib warnings about bcrypt
@@ -13,43 +50,31 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="passlib")
 # python-multipart warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="python_multipart")
 
-from contextlib import asynccontextmanager
-from collections.abc import AsyncGenerator
-
-from fastapi import FastAPI, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from fastapi.staticfiles import StaticFiles
-
-from app.core.config import get_settings
-from app.core.database import init_db, close_db, get_db_context
-from app.core.redis import close_redis
-from app.api import (
-    auth_router,
-    accounts_router,
-    qr_router,
-    articles_router,
-    proxies_router,
-    weight_router,
-    tasks_router,
-    logs_router,
-    notifications_router,
-    users_router,
-    collector_accounts_router,
-    monitored_accounts_router,
-    fetch_jobs_router,
-    system_config_router,
-)
-from app.services.scheduler_service import SchedulerService, start_scheduler, stop_scheduler
-from app.services.bootstrap_service import BootstrapService
-from app.core.exceptions import AppException
-from app.repositories.monitored_account_repo import MonitoredAccountRepository
-from app.tasks.fetch_task import run_single_account
-from app.tasks.health_task import run_all_collector_health_checks
-
 
 settings = get_settings()
+
+
+def _json_safe(value):
+    """Convert validation payloads to JSON-safe primitives."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _build_validation_message(errors: list[dict]) -> str:
+    """Build a concise validation summary for the frontend."""
+    if not errors:
+        return "请求参数不合法"
+    first_error = errors[0]
+    location = ".".join(str(part) for part in first_error.get("loc", []) if part not in {"body", "query", "path"})
+    message = first_error.get("msg", "请求参数不合法")
+    if location:
+        return f"{location}: {message}"
+    return message
 
 
 @asynccontextmanager
@@ -82,7 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="DynamicWePubMonitor",
+        title="Just-We",
         description="微信公众号智能权重监控系统",
         version="0.1.0",
         docs_url="/docs",
@@ -115,11 +140,13 @@ def create_app() -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         """Handle request validation errors."""
+        errors = _json_safe(exc.errors())
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
                 "error": "Validation error",
-                "details": exc.errors(),
+                "detail": _build_validation_message(errors),
+                "details": errors,
             },
         )
 
@@ -133,9 +160,8 @@ def create_app() -> FastAPI:
 
     # Register API routers
     app.include_router(auth_router, prefix="/api")
-    app.include_router(accounts_router, prefix="/api")
-    app.include_router(qr_router, prefix="/api")
     app.include_router(articles_router, prefix="/api")
+    app.include_router(article_exports_router, prefix="/api")
     app.include_router(proxies_router, prefix="/api")
     app.include_router(weight_router, prefix="/api")
     app.include_router(tasks_router, prefix="/api")
@@ -146,6 +172,10 @@ def create_app() -> FastAPI:
     app.include_router(monitored_accounts_router, prefix="/api")
     app.include_router(fetch_jobs_router, prefix="/api")
     app.include_router(system_config_router, prefix="/api")
+    app.include_router(feeds_router, prefix="/api")
+    app.include_router(image_router, prefix="/api")
+    app.include_router(rate_limit_router, prefix="/api")
+    app.include_router(public_feeds_router)
 
     return app
 

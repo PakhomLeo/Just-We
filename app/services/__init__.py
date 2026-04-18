@@ -1,7 +1,6 @@
 """Service layer for business logic."""
 
 from app.services.auth_service import AuthService
-from app.services.account_service import AccountService
 from app.services.proxy_service import ProxyService
 from app.services.article_service import ArticleService
 from app.services.notification_service import NotificationService
@@ -19,7 +18,6 @@ from app.services.system_config_service import SystemConfigService
 
 __all__ = [
     "AuthService",
-    "AccountService",
     "ProxyService",
     "ArticleService",
     "NotificationService",

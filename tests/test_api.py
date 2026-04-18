@@ -1,24 +1,25 @@
 """Tests for API routes."""
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
-import uuid
+from unittest.mock import AsyncMock, patch
+import base64
 
+import httpx
 import pytest
-import pytest_asyncio
-from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
 from app.core.dependencies import get_current_user, get_db
+from app.core.exceptions import QRProviderNotConfiguredException
 from app.models.user import User, UserRole
-from app.models.account import Account, AccountType, AccountStatus
 from app.models.article import Article
 from app.models.collector_account import CollectorHealthStatus
+from app.models.log import OperationLog
 from app.models.notification import Notification
-from app.models.proxy import Proxy, ServiceType
+from app.models.proxy import Proxy
 
 
 class TestAuthAPI:
@@ -90,103 +91,6 @@ class TestAuthAPI:
         if response.status_code == 200:
             data = response.json()
             assert "email" in data
-
-        app.dependency_overrides.clear()
-
-
-class TestAccountAPI:
-    """Test cases for account API."""
-
-    @pytest.mark.asyncio
-    async def test_list_accounts(
-        self, test_db: AsyncSession, mock_user: User, mock_account: Account
-    ):
-        """Test listing accounts."""
-        mock_user.role = UserRole.ADMIN
-
-        async def override_get_db():
-            yield test_db
-
-        def override_get_current_user():
-            return mock_user
-
-        app.dependency_overrides[get_db] = override_get_db
-        app.dependency_overrides[get_current_user] = override_get_current_user
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test"
-        ) as client:
-            response = await client.get("/api/accounts/")
-
-        if response.status_code == 200:
-            data = response.json()
-            assert "items" in data
-            assert "total" in data
-
-        app.dependency_overrides.clear()
-
-    @pytest.mark.asyncio
-    async def test_create_account(
-        self, test_db: AsyncSession, mock_user: User
-    ):
-        """Test creating an account."""
-        mock_user.role = UserRole.ADMIN
-
-        async def override_get_db():
-            yield test_db
-
-        def override_get_current_user():
-            return mock_user
-
-        app.dependency_overrides[get_db] = override_get_db
-        app.dependency_overrides[get_current_user] = override_get_current_user
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test"
-        ) as client:
-            response = await client.post(
-                "/api/accounts/",
-                json={
-                    "biz": "new_biz_api_test",
-                    "fakeid": "new_fakeid",
-                    "name": "New API Test Account",
-                    "account_type": "mp",
-                },
-            )
-
-        # May be 201 or error if constraints fail
-        assert response.status_code in [201, 400, 422]
-
-        app.dependency_overrides.clear()
-
-    @pytest.mark.asyncio
-    async def test_get_account(
-        self, test_db: AsyncSession, mock_user: User, mock_account: Account
-    ):
-        """Test getting single account."""
-        mock_user.role = UserRole.VIEWER
-
-        async def override_get_db():
-            yield test_db
-
-        def override_get_current_user():
-            return mock_user
-
-        app.dependency_overrides[get_db] = override_get_db
-        app.dependency_overrides[get_current_user] = override_get_current_user
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test"
-        ) as client:
-            response = await client.get(f"/api/accounts/{mock_account.id}")
-
-        if response.status_code == 200:
-            data = response.json()
-            assert data["id"] == mock_account.id
-            assert data["biz"] == mock_account.biz
 
         app.dependency_overrides.clear()
 
@@ -283,6 +187,35 @@ class TestArticleAPI:
         app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
+    async def test_monitored_articles_route_is_not_shadowed_by_article_id_route(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+        mock_monitored_account,
+        mock_monitored_article: Article,
+    ):
+        """The monitored-account article list path should resolve before /{article_id}."""
+        mock_user.role = UserRole.VIEWER
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get(f"/api/articles/monitored/{mock_monitored_account.id}")
+
+        assert response.status_code == 200
+        article_ids = {item["id"] for item in response.json()["items"]}
+        assert mock_monitored_article.id in article_ids
+
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
     async def test_get_article_blocks_other_users_monitored_articles(
         self,
         test_db: AsyncSession,
@@ -372,6 +305,129 @@ class TestMonitoredAndCollectorIsolationAPI:
         assert notifications[0].notification_type == "collector_expired"
 
         app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_generate_qr_accepts_account_type_alias(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        mock_user.role = UserRole.OPERATOR
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        with patch("app.api.collector_accounts.QRLoginService.generate", new=AsyncMock(return_value={
+            "qr_url": "https://example.com/qr.png",
+            "ticket": "ticket-1",
+            "expire_at": datetime.now(timezone.utc).isoformat(),
+            "provider": "stub",
+        })):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post(
+                    "/api/collector-accounts/qr/generate",
+                    json={"account_type": "mp_admin"},
+                )
+
+        assert response.status_code == 200
+        assert response.json()["ticket"] == "ticket-1"
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_generate_qr_returns_503_when_redis_unavailable(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        mock_user.role = UserRole.OPERATOR
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        with patch(
+            "app.api.collector_accounts.QRLoginService.generate",
+            new=AsyncMock(side_effect=RedisConnectionError("redis down")),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post(
+                    "/api/collector-accounts/qr/generate",
+                    json={"type": "mp_admin"},
+                )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Redis is unavailable; QR login state cannot be stored"
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_generate_qr_returns_503_when_provider_not_configured(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        mock_user.role = UserRole.OPERATOR
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        with patch(
+            "app.api.collector_accounts.QRLoginService.generate",
+            new=AsyncMock(side_effect=QRProviderNotConfiguredException("weread_platform")),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post(
+                    "/api/collector-accounts/qr/generate",
+                    json={"type": "weread"},
+                )
+
+        assert response.status_code == 503
+        assert response.json()["detail"] == "weread_platform 未配置，暂时无法生成二维码"
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_mp_admin_qr_image_is_returned_as_data_url(self):
+        from app.services.qr_providers import MpAdminQRProvider
+
+        image_bytes = b"fake-png"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "image/png"}, content=image_bytes)
+
+        provider = MpAdminQRProvider()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            data_url = await provider._fetch_qr_data_url(
+                client,
+                "https://mp.weixin.qq.com/cgi-bin/scanloginqrcode?action=getqrcode&uuid=test",
+            )
+
+        assert data_url == f"data:image/png;base64,{base64.b64encode(image_bytes).decode('ascii')}"
+
+    def test_weread_scan_url_is_encoded_as_displayable_qr_data_url(self):
+        from app.services.qr_providers import build_qr_svg_data_url
+
+        data_url = build_qr_svg_data_url("https://weread.qq.com/web/login?q=test")
+
+        assert data_url.startswith("data:image/svg+xml;base64,")
+        decoded = base64.b64decode(data_url.split(",", 1)[1]).decode("utf-8")
+        assert "<svg" in decoded
+        assert "https://weread.qq.com/web/login" not in data_url
 
 
 class TestNotificationAPI:
@@ -479,6 +535,109 @@ class TestProxyAPI:
 
         app.dependency_overrides.clear()
 
+    @pytest.mark.asyncio
+    async def test_proxy_stats_route_is_not_shadowed_by_proxy_id_route(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+        mock_proxy: Proxy,
+    ):
+        """The stats endpoint should resolve before /{proxy_id} routes."""
+        mock_user.role = UserRole.OPERATOR
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/proxies/stats")
+
+        assert response.status_code == 200
+        assert response.json()["total"] >= 1
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_create_proxy_persists_integer_port(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        """Creating a proxy should persist the submitted integer port."""
+        mock_user.role = UserRole.OPERATOR
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/proxies/",
+                json={"host": "127.0.0.1", "port": 8899, "service_type": "mp_list"},
+            )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["host"] == "127.0.0.1"
+        assert data["port"] == 8899
+        assert data["service_type"] == "mp_list"
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_proxy_services_can_be_viewed_and_validated(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        """A proxy can be bound to multiple compatible services only."""
+        mock_user.role = UserRole.OPERATOR
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_response = await client.post(
+                "/api/proxies/",
+                json={
+                    "host": "127.0.0.2",
+                    "port": 8899,
+                    "service_type": "mp_detail",
+                    "proxy_kind": "isp_static",
+                    "rotation_mode": "sticky",
+                    "service_keys": ["mp_admin_login", "mp_list", "mp_detail"],
+                },
+            )
+            proxy_id = create_response.json()["id"]
+            services_response = await client.get(f"/api/proxies/{proxy_id}/services")
+            list_response = await client.get("/api/proxies/", params={"service_key": "mp_detail"})
+            invalid_response = await client.put(
+                f"/api/proxies/{proxy_id}/services",
+                json={"service_keys": ["ai", "mp_detail"]},
+            )
+
+        assert create_response.status_code == 201
+        assert services_response.status_code == 200
+        assert list_response.status_code == 200
+        assert set(services_response.json()["service_keys"]) == {"mp_admin_login", "mp_list", "mp_detail"}
+        assert any(item["id"] == proxy_id for item in list_response.json()["items"])
+        assert invalid_response.status_code == 400
+        app.dependency_overrides.clear()
+
 
 class TestWeightAPI:
     """Test cases for weight API."""
@@ -556,6 +715,108 @@ class TestWeightAPI:
 
         app.dependency_overrides.clear()
 
+    @pytest.mark.asyncio
+    async def test_simulate_weight_reflects_different_input_values(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        """Weight simulation API should change score/tier for different UI inputs."""
+        mock_user.role = UserRole.VIEWER
+        now = datetime.now(timezone.utc)
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        active_matching_payload = {
+            "update_history": {
+                (now - timedelta(days=i)).isoformat(): 4
+                for i in range(14)
+            },
+            "ai_relevance_history": {},
+            "last_updated": (now - timedelta(hours=1)).isoformat(),
+            "new_article_count": 6,
+            "ai_result": {
+                "ratio": 1.0,
+                "target_match": "是",
+                "target_type": "产业投融资",
+            },
+        }
+        stale_not_matching_payload = {
+            "update_history": {
+                (now - timedelta(days=80)).isoformat(): 1,
+            },
+            "ai_relevance_history": {},
+            "last_updated": (now - timedelta(days=75)).isoformat(),
+            "new_article_count": 0,
+            "ai_result": {
+                "ratio": 0.0,
+                "target_match": "不是",
+                "target_type": "产业投融资",
+            },
+        }
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            active_response = await client.post("/api/weight/simulate", json=active_matching_payload)
+            stale_response = await client.post("/api/weight/simulate", json=stale_not_matching_payload)
+
+        assert active_response.status_code == 200
+        assert stale_response.status_code == 200
+
+        active = active_response.json()
+        stale = stale_response.json()
+        assert active["new_score"] > stale["new_score"]
+        assert active["new_tier"] < stale["new_tier"]
+        assert active["score_breakdown"]["relevance"] > stale["score_breakdown"]["relevance"]
+        assert active["next_interval_hours"] < stale["next_interval_hours"]
+
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_update_config_persists(self, test_db: AsyncSession, mock_user: User):
+        """Weight config updates should persist in the singleton table."""
+        mock_user.role = UserRole.ADMIN
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        payload = {
+            "frequency_ratio": 0.3,
+            "recency_ratio": 0.3,
+            "relevance_ratio": 0.25,
+            "stability_ratio": 0.15,
+            "tier_threshold_tier1": 90,
+            "check_interval_tier1": 12,
+            "high_relevance_threshold": 0.9,
+            "ai_consecutive_low_threshold": 4,
+        }
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            put_response = await client.put("/api/weight/config", json=payload)
+            get_response = await client.get("/api/weight/config")
+
+        assert put_response.status_code == 200
+        assert get_response.status_code == 200
+        assert get_response.json()["frequency_ratio"] == 0.3
+        assert get_response.json()["tier_thresholds"][0] == 90
+        assert get_response.json()["check_intervals"]["1"] == 12
+        assert get_response.json()["high_relevance_threshold"] == 0.9
+        assert get_response.json()["ai_consecutive_low_threshold"] == 4
+
+        app.dependency_overrides.clear()
+
 
 class TestHealthCheck:
     """Test health check endpoint."""
@@ -612,4 +873,63 @@ class TestSystemConfigAPI:
         assert put_response.json()["enabled"] is True
         assert put_response.json()["to_emails"] == ["ops@example.com"]
 
+        app.dependency_overrides.clear()
+
+
+class TestLogsAPI:
+    """Logs list and stats endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_log_stats(self, test_db: AsyncSession, mock_user: User):
+        mock_user.role = UserRole.ADMIN
+        test_db.add_all(
+            [
+                OperationLog(action="create_monitored", target_type="monitored_account", target_id=1, detail="ok"),
+                OperationLog(action="delete_proxy", target_type="proxy", target_id=1, detail="removed"),
+                OperationLog(action="poll_run", target_type="job", target_id=1, detail="pending"),
+            ]
+        )
+        await test_db.commit()
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/api/logs/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 3
+        assert data["recent_24h"] == 3
+        assert data["success_24h"] == 1
+        assert data["failed_24h"] == 1
+        assert data["pending_24h"] == 1
+
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_logs_are_admin_only(self, test_db: AsyncSession, mock_user: User):
+        mock_user.role = UserRole.VIEWER
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            list_response = await client.get("/api/logs/")
+            stats_response = await client.get("/api/logs/stats")
+
+        assert list_response.status_code == 403
+        assert stats_response.status_code == 403
         app.dependency_overrides.clear()

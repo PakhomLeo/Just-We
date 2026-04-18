@@ -1,11 +1,15 @@
 """Article model for WeChat public account articles."""
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import String, Text, Float, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.monitored_account import MonitoredAccount
 
 
 class Article(Base, TimestampMixin):
@@ -13,12 +17,6 @@ class Article(Base, TimestampMixin):
 
     __tablename__ = "articles"
 
-    account_id: Mapped[int | None] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-        comment="关联账号 ID",
-    )
     monitored_account_id: Mapped[int | None] = mapped_column(
         ForeignKey("monitored_accounts.id", ondelete="CASCADE"),
         nullable=True,
@@ -35,6 +33,16 @@ class Article(Base, TimestampMixin):
         nullable=False,
         comment="清洗后全文",
     )
+    content_html: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="清洗后的富文本 HTML",
+    )
+    content_type: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="内容类型",
+    )
     raw_content: Mapped[str] = mapped_column(
         Text,
         nullable=True,
@@ -44,6 +52,11 @@ class Article(Base, TimestampMixin):
         JSON,
         default=list,
         comment="本地化图片路径列表",
+    )
+    original_images: Mapped[list | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="原始微信图片 URL 列表",
     )
     cover_image: Mapped[str | None] = mapped_column(
         String(1000),
@@ -75,6 +88,43 @@ class Article(Base, TimestampMixin):
         nullable=True,
         comment="AI 判定结果 {ratio, reason, keywords: []}",
     )
+    ai_text_analysis: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="AI 文字全文解析 JSON",
+    )
+    ai_image_analysis: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="AI 图片内容解析 JSON",
+    )
+    ai_type_judgment: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="AI 类型判断 JSON",
+    )
+    ai_combined_analysis: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="AI 文字和图片拼接后的结构化结果",
+    )
+    ai_target_match: Mapped[str | None] = mapped_column(
+        String(8),
+        nullable=True,
+        index=True,
+        comment="目标类型判断：是/不是",
+    )
+    ai_analysis_status: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        index=True,
+        comment="AI 分析状态：pending/success/failed/skipped",
+    )
+    ai_analysis_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="AI 分析错误信息",
+    )
     fetch_mode: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,
@@ -92,11 +142,6 @@ class Article(Base, TimestampMixin):
         comment="原始抓取元数据",
     )
 
-    # Relationships
-    account: Mapped["Account"] = relationship(
-        "Account",
-        back_populates="articles",
-    )
     monitored_account: Mapped["MonitoredAccount"] = relationship(
         "MonitoredAccount",
         back_populates="articles",

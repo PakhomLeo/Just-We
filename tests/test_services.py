@@ -5,24 +5,21 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.auth_service import AuthService
-from app.services.account_service import AccountService
 from app.services.bootstrap_service import BootstrapService
 from app.services.proxy_service import ProxyService
 from app.services.article_service import ArticleService
 from app.services.parser_service import ParserService, ParsedArticle
 from app.services.ai_service import AIService
 from app.services.fetch_pipeline_service import FetchPipelineService
-from app.services.fetcher_service import FetcherService
+from app.services.fetcher_service import DetailDocumentResponse, FetcherService
 from app.services.monitoring_source_service import MonitoringSourceService
 from app.services.notification_service import NotificationService
 from app.services.qr_login_service import QRLoginService
 from app.services.scheduler_service import SchedulerService, stop_scheduler
-from app.models.account import Account, AccountType, AccountStatus
 from app.models.article import Article
 from app.models.collector_account import (
     CollectorAccount,
@@ -33,10 +30,10 @@ from app.models.collector_account import (
 )
 from app.models.monitored_account import MonitoredAccount, MonitoredAccountStatus
 from app.models.notification import Notification
-from app.models.proxy import Proxy, ServiceType
+from app.models.proxy import Proxy, ProxyKind, ProxyRotationMode, ProxyServiceKey, ServiceType
 from app.models.system_config import NotificationEmailConfig
 from app.models.user import User
-from app.core.exceptions import AccountNotFoundException, FetchFailedException, ProxyNotAvailableException
+from app.core.exceptions import FetchFailedException, ProxyNotAvailableException
 from app.services.health_service import HealthCheckService
 
 
@@ -90,98 +87,6 @@ class TestAuthService:
 
         assert user is not None
         assert user.email == "admin@admin.com"
-
-
-class TestAccountService:
-    """Test cases for AccountService."""
-
-    @pytest.mark.asyncio
-    async def test_create_account(self, test_db: AsyncSession):
-        """Test account creation."""
-        service = AccountService(test_db)
-
-        account = await service.create_account(
-            biz="new_biz_123",
-            fakeid="new_fakeid",
-            name="New Test Account",
-            account_type="mp",
-        )
-
-        assert account.id is not None
-        assert account.biz == "new_biz_123"
-        assert account.name == "New Test Account"
-        assert account.current_tier == 3
-        assert account.composite_score == 50.0
-
-    @pytest.mark.asyncio
-    async def test_get_account(self, test_db: AsyncSession, mock_account: Account):
-        """Test getting account by ID."""
-        service = AccountService(test_db)
-        account = await service.get_account(mock_account.id)
-
-        assert account.id == mock_account.id
-        assert account.biz == mock_account.biz
-
-    @pytest.mark.asyncio
-    async def test_get_account_not_found(self, test_db: AsyncSession):
-        """Test getting non-existent account raises exception."""
-        service = AccountService(test_db)
-        with pytest.raises(AccountNotFoundException):
-            await service.get_account(99999)
-
-    @pytest.mark.asyncio
-    async def test_get_account_by_biz(self, test_db: AsyncSession, mock_account: Account):
-        """Test getting account by biz."""
-        service = AccountService(test_db)
-        account = await service.get_account_by_biz(mock_account.biz)
-
-        assert account is not None
-        assert account.biz == mock_account.biz
-
-    @pytest.mark.asyncio
-    async def test_update_account(self, test_db: AsyncSession, mock_account: Account):
-        """Test updating account."""
-        service = AccountService(test_db)
-        updated = await service.update_account(
-            mock_account.id,
-            name="Updated Name",
-            current_tier=2,
-        )
-
-        assert updated.name == "Updated Name"
-        assert updated.current_tier == 2
-
-    @pytest.mark.asyncio
-    async def test_apply_manual_override(self, test_db: AsyncSession, mock_account: Account):
-        """Test applying manual override."""
-        service = AccountService(test_db)
-        expire_at = datetime.now(timezone.utc) + timedelta(hours=24)
-
-        updated = await service.apply_manual_override(
-            account_id=mock_account.id,
-            target_tier=1,
-            reason="VIP monitoring",
-            expire_at=expire_at,
-        )
-
-        assert updated.manual_override is not None
-        assert updated.manual_override["target_tier"] == 1
-
-    @pytest.mark.asyncio
-    async def test_clear_manual_override(self, test_db: AsyncSession, mock_account: Account):
-        """Test clearing manual override."""
-        service = AccountService(test_db)
-
-        # First set an override
-        await service.apply_manual_override(
-            mock_account.id,
-            target_tier=1,
-            reason="Test",
-        )
-
-        # Then clear it
-        cleared = await service.clear_manual_override(mock_account.id)
-        assert cleared.manual_override is None
 
 
 class TestBootstrapService:
@@ -239,6 +144,73 @@ class TestProxyService:
             await service.get_proxy_for_service(ServiceType.AI)
 
     @pytest.mark.asyncio
+    async def test_proxy_service_bindings_validate_compatibility(self, test_db: AsyncSession):
+        """Proxy type should limit which business services can use it."""
+        service = ProxyService(test_db)
+
+        with pytest.raises(ValueError):
+            await service.create_proxy(
+                host="10.0.0.1",
+                port=8080,
+                service_type=ServiceType.AI,
+                proxy_kind=ProxyKind.DATACENTER,
+                rotation_mode=ProxyRotationMode.ROUND_ROBIN,
+                service_keys=[ProxyServiceKey.MP_ADMIN_LOGIN],
+            )
+
+        proxy = await service.create_proxy(
+            host="10.0.0.2",
+            port=8080,
+            service_type=ServiceType.MP_DETAIL,
+            proxy_kind=ProxyKind.ISP_STATIC,
+            rotation_mode=ProxyRotationMode.STICKY,
+            service_keys=[ProxyServiceKey.MP_ADMIN_LOGIN, ProxyServiceKey.MP_LIST, ProxyServiceKey.MP_DETAIL],
+        )
+
+        assert set(proxy.service_keys) == {
+            ProxyServiceKey.MP_ADMIN_LOGIN,
+            ProxyServiceKey.MP_LIST,
+            ProxyServiceKey.MP_DETAIL,
+        }
+
+    @pytest.mark.asyncio
+    async def test_proxy_selection_round_robin_skips_cooling_and_low_score(self, test_db: AsyncSession):
+        """Detail proxy selection should rotate among healthy compatible proxies."""
+        service = ProxyService(test_db)
+        first = await service.create_proxy(
+            host="10.0.0.10",
+            port=8080,
+            service_type=ServiceType.MP_DETAIL,
+            proxy_kind=ProxyKind.RESIDENTIAL_ROTATING,
+            rotation_mode=ProxyRotationMode.ROUND_ROBIN,
+            service_keys=[ProxyServiceKey.MP_DETAIL],
+        )
+        second = await service.create_proxy(
+            host="10.0.0.11",
+            port=8080,
+            service_type=ServiceType.MP_DETAIL,
+            proxy_kind=ProxyKind.RESIDENTIAL_ROTATING,
+            rotation_mode=ProxyRotationMode.ROUND_ROBIN,
+            service_keys=[ProxyServiceKey.MP_DETAIL],
+        )
+        low_score = await service.create_proxy(
+            host="10.0.0.12",
+            port=8080,
+            service_type=ServiceType.MP_DETAIL,
+            proxy_kind=ProxyKind.RESIDENTIAL_ROTATING,
+            rotation_mode=ProxyRotationMode.ROUND_ROBIN,
+            service_keys=[ProxyServiceKey.MP_DETAIL],
+        )
+        await service.update_proxy(low_score.id, success_rate=10)
+        await service.mark_proxy_failure(second, "captcha", cooldown_seconds=120)
+
+        selected_one = await service.select_proxy(ProxyServiceKey.MP_DETAIL)
+        selected_two = await service.select_proxy(ProxyServiceKey.MP_DETAIL)
+
+        assert selected_one.id == first.id
+        assert selected_two.id == first.id
+
+    @pytest.mark.asyncio
     async def test_update_proxy_success_rate(self, test_db: AsyncSession, mock_proxy: Proxy):
         """Test updating proxy success rate."""
         service = ProxyService(test_db)
@@ -262,12 +234,12 @@ class TestArticleService:
     """Test cases for ArticleService."""
 
     @pytest.mark.asyncio
-    async def test_save_article(self, test_db: AsyncSession, mock_account: Account):
+    async def test_save_article(self, test_db: AsyncSession, mock_account: MonitoredAccount):
         """Test saving article."""
         service = ArticleService(test_db)
 
         article = await service.save_article(
-            account_id=mock_account.id,
+            monitored_account_id=mock_account.id,
             title="New Article",
             content="Article content here",
             url="https://example.com/article",
@@ -278,11 +250,11 @@ class TestArticleService:
 
     @pytest.mark.asyncio
     async def test_get_articles_by_account(
-        self, test_db: AsyncSession, mock_account: Account, mock_article: Article
+        self, test_db: AsyncSession, mock_account: MonitoredAccount, mock_article: Article
     ):
         """Test getting articles by account."""
         service = ArticleService(test_db)
-        articles = await service.get_articles_by_account(mock_account.id)
+        articles = await service.get_articles_by_monitored_account(mock_account.id)
 
         assert len(articles) >= 1
         assert any(a.id == mock_article.id for a in articles)
@@ -584,48 +556,6 @@ class TestFetcherService:
     """Test cases for FetcherService."""
 
     @pytest.mark.asyncio
-    async def test_fetch_with_mock(self, test_db: AsyncSession, mock_account: Account):
-        """Test mock fetch returns data."""
-        fetcher = FetcherService(test_db, mock_mode=True)
-
-        articles = await fetcher.fetch_new_articles(mock_account)
-
-        assert isinstance(articles, list)
-        assert len(articles) >= 0  # Mock returns 0-5 articles
-
-    @pytest.mark.asyncio
-    async def test_fetch_uses_weread_for_tier1_2(self, test_db: AsyncSession, mock_account: Account):
-        """Test that tier 1-2 uses WeRead backend."""
-        mock_account.current_tier = 1
-        fetcher = FetcherService(test_db, mock_mode=True)
-
-        articles = await fetcher.fetch_new_articles(mock_account)
-
-        # Mock should return data regardless of tier
-        assert isinstance(articles, list)
-
-    @pytest.mark.asyncio
-    async def test_fetch_uses_mp_for_tier3_plus(self, test_db: AsyncSession, mock_account: Account):
-        """Test that tier 3+ uses MP backend."""
-        mock_account.current_tier = 3
-        fetcher = FetcherService(test_db, mock_mode=True)
-
-        articles = await fetcher.fetch_new_articles(mock_account)
-
-        assert isinstance(articles, list)
-
-    @pytest.mark.asyncio
-    async def test_test_fetch_connection(self, test_db: AsyncSession, mock_account: Account):
-        """Test fetch connection test."""
-        fetcher = FetcherService(test_db, mock_mode=True)
-
-        result = await fetcher.test_fetch_connection(mock_account)
-
-        assert "success" in result
-        assert "backend_used" in result
-        assert result["success"] is True
-
-    @pytest.mark.asyncio
     async def test_mp_fetcher_supports_pagination_and_dedup(self, test_db: AsyncSession):
         """Test MP fetcher paginates and de-duplicates update URLs."""
         fetcher = FetcherService(test_db)
@@ -741,6 +671,111 @@ class TestFetcherService:
         assert metadata["author"] == "结构化作者"
         assert metadata["cover_image"] == "https://cdn.example.com/cover.jpg"
         assert metadata["published_at"] == "2026-04-16T08:00:00+00:00"
+
+    @pytest.mark.asyncio
+    async def test_fetch_article_detail_rejects_wechat_captcha_page(self, test_db: AsyncSession):
+        """A WeChat captcha page is HTTP 200 but must not be treated as article content."""
+        fetcher = FetcherService(test_db)
+        collector = CollectorAccount(
+            owner_user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            account_type=CollectorAccountType.MP_ADMIN,
+            display_name="Collector",
+            credentials={"cookies": {}, "token": "token123"},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={},
+        )
+        proxy = await ProxyService(test_db).create_proxy(
+            host="127.0.0.20",
+            port=8080,
+            service_type=ServiceType.MP_DETAIL,
+        )
+        await test_db.refresh(proxy)
+
+        async def fake_fetch_document(url, headers, proxy_url):
+            return DetailDocumentResponse(
+                status_code=200,
+                text="<html>wappoc_appmsgcaptcha poc_token 安全验证</html>",
+                final_url="https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?poc_token=test",
+                headers={},
+            )
+
+        fetcher.mp_fetcher._fetch_document = fake_fetch_document
+        fetcher.mp_fetcher._sleep_with_policy = AsyncMock()
+
+        with pytest.raises(FetchFailedException) as exc_info:
+            await fetcher.mp_fetcher.fetch_article_detail("https://mp.weixin.qq.com/s/test", collector, None)
+
+        assert exc_info.value.details["category"] == "risk_control"
+        assert exc_info.value.details["retryable"] is False
+
+    @pytest.mark.asyncio
+    async def test_fetch_article_detail_rotates_proxy_pool(self, test_db: AsyncSession):
+        """Detail downloads should retry the next configured proxy before direct fallback."""
+        first_proxy = Proxy(
+            host="10.0.0.10",
+            port=8080,
+            service_type=ServiceType.MP_DETAIL,
+            success_rate=90.0,
+            is_active=True,
+        )
+        second_proxy = Proxy(
+            host="10.0.0.11",
+            port=8080,
+            service_type=ServiceType.MP_DETAIL,
+            success_rate=80.0,
+            is_active=True,
+        )
+        test_db.add_all([first_proxy, second_proxy])
+        await test_db.flush()
+
+        fetcher = FetcherService(test_db)
+        collector = CollectorAccount(
+            owner_user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            account_type=CollectorAccountType.MP_ADMIN,
+            display_name="Collector",
+            credentials={"cookies": {"wxuin": "123"}, "token": "token123"},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={},
+        )
+        calls = []
+
+        async def fake_fetch_document(url, headers, proxy_url):
+            calls.append((url, headers, proxy_url))
+            if proxy_url == first_proxy.proxy_url:
+                return DetailDocumentResponse(
+                    status_code=200,
+                    text="<html>wappoc_appmsgcaptcha poc_token 安全验证</html>",
+                    final_url="https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha",
+                    headers={},
+                )
+            return DetailDocumentResponse(
+                status_code=200,
+                text=(
+                    "<html><head><meta property=\"og:title\" content=\"OK\" />"
+                    "<meta property=\"og:image\" content=\"https://cdn.example.com/a.jpg\" /></head>"
+                    "<body><div id=\"js_content\">article</div></body></html>"
+                ),
+                final_url="https://mp.weixin.qq.com/s/test?token=token123",
+                headers={},
+            )
+
+        fetcher.mp_fetcher._fetch_document = fake_fetch_document
+        fetcher.mp_fetcher._sleep_with_policy = AsyncMock()
+
+        detail = await fetcher.mp_fetcher.fetch_article_detail("https://mp.weixin.qq.com/s/test", collector, None)
+        await test_db.refresh(first_proxy)
+        await test_db.refresh(second_proxy)
+
+        assert detail["title"] == "OK"
+        assert [call[2] for call in calls] == [first_proxy.proxy_url, second_proxy.proxy_url]
+        assert calls[0][0].endswith("token=token123")
+        assert calls[0][1]["Cookie"] == "wxuin=123"
+        assert first_proxy.success_rate == 75.0
+        assert second_proxy.success_rate == 82.0
 
     def test_parse_wechat_public_page_from_general_msg_list(self):
         """Test WeRead/public page parser extracts article updates from embedded msg list."""
@@ -915,6 +950,7 @@ class TestFetchPipelineService:
                 "ai_relevance_history": monitored.ai_relevance_history,
             }
         )
+        pipeline._build_adjuster = AsyncMock(return_value=pipeline.adjuster)
 
         existing_url = "https://mp.weixin.qq.com/s/existing"
         new_url = "https://mp.weixin.qq.com/s/new"
@@ -1110,6 +1146,7 @@ class TestFetchPipelineService:
                 "ai_relevance_history": {datetime.now(timezone.utc).isoformat(): {"ratio": 0.91, "reason": "high relevance"}},
             }
         )
+        pipeline._build_adjuster = AsyncMock(return_value=pipeline.adjuster)
         pipeline.monitored_repo.update = AsyncMock(return_value=monitored)
         pipeline.collector_service.mark_success = AsyncMock()
 

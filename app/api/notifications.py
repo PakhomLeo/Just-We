@@ -96,7 +96,6 @@ def _notification_to_dict(notification) -> dict:
     return {
         "id": notification.id,
         "owner_user_id": str(notification.owner_user_id) if notification.owner_user_id else None,
-        "account_id": notification.account_id,
         "collector_account_id": notification.collector_account_id,
         "monitored_account_id": notification.monitored_account_id,
         "article_id": notification.article_id,

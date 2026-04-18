@@ -48,7 +48,7 @@ class WeightConfigUpdate(BaseModel):
 class WeightSimulateInput(BaseModel):
     """Schema for weight simulation input."""
 
-    # Account current state
+    # Monitored account current state
     update_history: dict[str, int]  # timestamp -> count
     ai_relevance_history: dict[str, dict[str, Any]]  # timestamp -> {ratio, reason}
     last_updated: str | None = None
@@ -72,7 +72,7 @@ class WeightSimulateResult(BaseModel):
 class WeightUpdateEvent(BaseModel):
     """Schema for weight update event (internal use)."""
 
-    account_id: int
+    monitored_account_id: int
     old_tier: int
     new_tier: int
     old_score: float

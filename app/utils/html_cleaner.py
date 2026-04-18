@@ -1,7 +1,6 @@
 """HTML cleaner utility for extracting clean text from HTML."""
 
 import re
-from typing import Any
 
 
 class HTMLCleaner:

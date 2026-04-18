@@ -13,8 +13,10 @@ from app.core.config import get_settings
 from app.core.exceptions import QRCodeExpiredException, QRCodeNotFoundException
 from app.core.redis import RedisKeys, get_redis_client
 from app.models.collector_account import CollectorAccount, CollectorAccountType
+from app.models.proxy import ProxyServiceKey
 from app.schemas.qr import QRData, QRGenerateRequest, QRGenerateResponse, QRStatusResponse
 from app.services.collector_account_service import CollectorAccountService
+from app.services.proxy_service import ProxyService
 from app.services.qr_providers import get_qr_provider
 
 
@@ -31,7 +33,23 @@ class QRLoginService:
         self.expire_seconds = settings.qr_code_expire_seconds
 
     async def generate(self, request: QRGenerateRequest, current_user) -> QRGenerateResponse:
-        provider = get_qr_provider(request.type)
+        login_proxy_id = request.login_proxy_id
+        proxy_url = None
+        if request.type == CollectorAccountType.MP_ADMIN:
+            if login_proxy_id is None:
+                raise ValueError("公众号管理员登录必须先选择一个兼容的长期登录代理")
+            proxy_service = ProxyService(self.db)
+            from app.repositories.proxy_repo import ProxyRepository
+
+            proxy = await ProxyRepository(self.db).get_by_id(login_proxy_id)
+            if proxy is None:
+                raise ValueError("所选登录代理不存在")
+            if ProxyServiceKey.MP_ADMIN_LOGIN not in proxy_service.compatible_service_keys(proxy):
+                raise ValueError("所选代理类型不能用于公众号管理员登录")
+            if ProxyServiceKey.MP_ADMIN_LOGIN not in proxy.service_keys:
+                await proxy_service.replace_service_bindings(proxy, [*proxy.service_keys, ProxyServiceKey.MP_ADMIN_LOGIN])
+            proxy_url = proxy.proxy_url
+        provider = self._get_provider(request.type, proxy_url)
         provider_result = await provider.generate()
         ticket = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
@@ -48,6 +66,8 @@ class QRLoginService:
                 "provider": provider.provider_name,
                 "provider_ticket": provider_result.provider_ticket,
                 "provider_state": provider_result.state,
+                "login_proxy_id": login_proxy_id,
+                "proxy_url": proxy_url,
             }
         )
 
@@ -60,6 +80,7 @@ class QRLoginService:
             ticket=ticket,
             expire_at=provider_result.expire_at,
             provider=provider.provider_name,
+            login_proxy_id=login_proxy_id,
         )
 
     async def get_status(self, ticket: str, current_user=None) -> QRStatusResponse:
@@ -92,82 +113,14 @@ class QRLoginService:
 
     async def cancel(self, ticket: str) -> bool:
         payload = await self._load_payload(ticket)
-        provider = get_qr_provider(CollectorAccountType(payload.get("type", "mp_admin")))
+        provider = self._get_provider(CollectorAccountType(payload.get("type", "mp_admin")), payload.get("proxy_url"))
         await provider.cancel(payload.get("provider_state") or {})
         await self.redis.delete(RedisKeys.qr_status(ticket))
         await self.redis.delete(RedisKeys.qr_data(ticket))
         return True
 
-    async def confirm(
-        self,
-        ticket: str,
-        current_user,
-        display_name: str | None = None,
-        credentials: dict | None = None,
-    ) -> CollectorAccount:
-        payload = await self._load_payload(ticket)
-        if current_user.role.value != "admin" and payload.get("owner_user_id") != str(current_user.id):
-            raise QRCodeNotFoundException(ticket)
-
-        if credentials is not None:
-            account_payload = {
-                "display_name": display_name or "已绑定抓取账号",
-                "external_id": f"manual_{ticket[:8]}",
-                "credentials": credentials,
-                "expires_at": datetime.now(timezone.utc),
-                "metadata_json": {"provider": "manual"},
-            }
-        else:
-            payload = await self._refresh_provider_status(ticket, payload, force=True)
-            account_payload = payload.get("account_payload")
-
-        if not account_payload:
-            raise QRCodeExpiredException(ticket)
-        account = await self._persist_account(payload, current_user.id, account_payload, display_name)
-        await self.update_payload(
-            ticket,
-            payload,
-            status="confirmed",
-            collector_account_id=account.id,
-            account_name=account.display_name,
-        )
-        return account
-
-    async def simulate_scan(self, ticket: str) -> QRStatusResponse:
-        payload = await self._load_payload(ticket)
-        payload = await self.update_payload(ticket, payload, status="scanned", message="开发环境模拟扫码")
-        return QRStatusResponse(status="scanned", message=payload.get("message"), provider=payload.get("provider"))
-
-    async def simulate_confirm(
-        self,
-        ticket: str,
-        current_user,
-        display_name: str = "Mock Collector Account",
-    ) -> CollectorAccount:
-        payload = await self._load_payload(ticket)
-        account_payload = {
-            "external_id": f"mock_{ticket[:8]}",
-            "display_name": display_name,
-            "credentials": {
-                "token": ticket,
-                "cookies": {"mock": "true", "channel": payload.get("type", "mp_admin")},
-            },
-            "expires_at": datetime.now(timezone.utc),
-            "metadata_json": {"provider": "simulate"},
-        }
-        account = await self._persist_account(payload, current_user.id, account_payload, display_name)
-        await self.update_payload(
-            ticket,
-            payload,
-            status="confirmed",
-            collector_account_id=account.id,
-            account_name=account.display_name,
-            account_payload=account_payload,
-        )
-        return account
-
     async def _refresh_provider_status(self, ticket: str, payload: dict[str, Any], force: bool = False) -> dict[str, Any]:
-        provider = get_qr_provider(CollectorAccountType(payload["type"]))
+        provider = self._get_provider(CollectorAccountType(payload["type"]), payload.get("proxy_url"))
         poll_result = await provider.poll(payload.get("provider_state") or {})
         payload["provider_state"] = poll_result.state
         payload["provider"] = provider.provider_name
@@ -203,6 +156,8 @@ class QRLoginService:
             external_id=account_payload.get("external_id"),
             expires_at=account_payload.get("expires_at"),
             metadata_json=account_payload.get("metadata_json"),
+            login_proxy_id=payload.get("login_proxy_id"),
+            last_login_proxy_ip=payload.get("proxy_url"),
         )
 
     async def _load_payload(self, ticket: str) -> dict[str, Any]:
@@ -230,3 +185,10 @@ class QRLoginService:
             "confirmed": "登录成功",
             "expired": "二维码已过期，请重新生成",
         }.get(status, "未知状态")
+
+    def _get_provider(self, account_type: CollectorAccountType, proxy_url: str | None):
+        try:
+            return get_qr_provider(account_type, proxy_url=proxy_url)
+        except TypeError:
+            # Some tests monkeypatch get_qr_provider with the legacy one-arg shape.
+            return get_qr_provider(account_type)

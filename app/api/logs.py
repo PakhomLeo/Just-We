@@ -1,9 +1,8 @@
 """Log API routes."""
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Query
 
-from app.core.dependencies import DbSession, CurrentUser
+from app.core.dependencies import AdminUser, DbSession
 from app.repositories.log_repo import LogRepository
 from app.models.log import OperationLog
 
@@ -14,7 +13,7 @@ router = APIRouter(prefix="/logs", tags=["Logs"])
 @router.get("/")
 async def list_logs(
     db: DbSession,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     action: str | None = None,
@@ -41,30 +40,51 @@ async def list_logs(
     }
 
 
-@router.get("/account/{account_id}")
-async def get_account_logs(
-    account_id: int,
+@router.get("/monitored-account/{monitored_account_id}")
+async def get_monitored_account_logs(
+    monitored_account_id: int,
     db: DbSession,
-    current_user: CurrentUser,
+    current_user: AdminUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
 ):
-    """Get logs for a specific account."""
+    """Get logs for a specific monitored account."""
     log_repo = LogRepository(db)
 
     logs = await log_repo.get_by_target(
-        target_type="account",
-        target_id=account_id,
+        target_type="monitored_account",
+        target_id=monitored_account_id,
         skip=(page - 1) * page_size,
         limit=page_size,
     )
-    total = await log_repo.get_count_by_target("account", account_id)
+    total = await log_repo.get_count_by_target("monitored_account", monitored_account_id)
 
     return {
         "total": total,
         "items": [_log_to_dict(log) for log in logs],
         "page": page,
         "page_size": page_size,
+    }
+
+
+@router.get("/stats")
+async def get_log_stats(
+    db: DbSession,
+    current_user: AdminUser,
+):
+    """Provide lightweight audit stats for dashboard and logs pages."""
+    log_repo = LogRepository(db)
+    total = await log_repo.get_filtered_count()
+    recent_logs = await log_repo.get_recent_logs(hours=24, limit=500)
+    success_count = sum(1 for log in recent_logs if _infer_result(log.action) == "success")
+    failed_count = sum(1 for log in recent_logs if _infer_result(log.action) == "failed")
+    pending_count = len(recent_logs) - success_count - failed_count
+    return {
+        "total": total,
+        "recent_24h": len(recent_logs),
+        "success_24h": success_count,
+        "failed_24h": failed_count,
+        "pending_24h": pending_count,
     }
 
 

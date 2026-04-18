@@ -4,20 +4,16 @@ import asyncio
 from collections.abc import AsyncGenerator, Generator
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.main import app
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
 from app.core.dependencies import get_db
 from app.models.base import Base
-from app.models.account import Account, AccountStatus, AccountType
 from app.models.article import Article
 from app.models.collector_account import (
     CollectorAccount,
@@ -29,6 +25,7 @@ from app.models.collector_account import (
 from app.models.monitored_account import MonitoredAccount, MonitoredAccountStatus
 from app.models.user import User, UserRole
 from app.models.proxy import Proxy, ServiceType
+from app.services.rate_limit_service import rate_limit_service
 
 
 # Test database URL (SQLite in-memory for tests)
@@ -83,6 +80,19 @@ async def override_app_db(test_db: AsyncSession) -> AsyncGenerator[None, None]:
     app.dependency_overrides.pop(get_db, None)
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limit_service(monkeypatch) -> Generator[None, None, None]:
+    """Keep the process-local limiter and optional Redis state isolated per test."""
+
+    async def _no_redis():
+        return None
+
+    rate_limit_service.reset()
+    monkeypatch.setattr(rate_limit_service, "_redis_ready", _no_redis)
+    yield
+    rate_limit_service.reset()
+
+
 @pytest_asyncio.fixture
 async def mock_user(test_db: AsyncSession) -> User:
     """Create a test user."""
@@ -114,18 +124,22 @@ async def other_user(test_db: AsyncSession) -> User:
 
 
 @pytest_asyncio.fixture
-async def mock_account(test_db: AsyncSession) -> Account:
-    """Create a test account."""
-    account = Account(
+async def mock_account(test_db: AsyncSession, mock_user: User) -> MonitoredAccount:
+    """Create a test monitored account."""
+    account = MonitoredAccount(
+        owner_user_id=mock_user.id,
         biz="test_biz_123",
         fakeid="test_fakeid",
         name="Test Account",
-        account_type=AccountType.MP,
+        source_url="https://mp.weixin.qq.com/s?__biz=test_biz_123",
         current_tier=3,
         composite_score=50.0,
-        status=AccountStatus.ACTIVE,
+        primary_fetch_mode=CollectorAccountType.MP_ADMIN,
+        fallback_fetch_mode=CollectorAccountType.WEREAD,
+        status=MonitoredAccountStatus.MONITORING,
         update_history={},
         ai_relevance_history={},
+        strategy_config={},
     )
     test_db.add(account)
     await test_db.commit()
@@ -134,8 +148,8 @@ async def mock_account(test_db: AsyncSession) -> Account:
 
 
 @pytest_asyncio.fixture
-async def mock_account_with_history(test_db: AsyncSession) -> Account:
-    """Create a test account with update history."""
+async def mock_account_with_history(test_db: AsyncSession, mock_user: User) -> MonitoredAccount:
+    """Create a test monitored account with update history."""
     now = datetime.now(timezone.utc)
 
     # Create 90 days of history
@@ -151,18 +165,22 @@ async def mock_account_with_history(test_db: AsyncSession) -> Account:
             "reason": f"Analysis day {i}",
         }
 
-    account = Account(
+    account = MonitoredAccount(
+        owner_user_id=mock_user.id,
         biz="test_biz_history",
         fakeid="test_fakeid_history",
         name="Test Account with History",
-        account_type=AccountType.WEREAD,
+        source_url="https://mp.weixin.qq.com/s?__biz=test_biz_history",
         current_tier=2,
         composite_score=65.0,
-        last_checked=now - timedelta(hours=12),
-        last_updated=now - timedelta(hours=6),
-        status=AccountStatus.ACTIVE,
+        last_polled_at=now - timedelta(hours=12),
+        last_published_at=now - timedelta(hours=6),
+        primary_fetch_mode=CollectorAccountType.WEREAD,
+        fallback_fetch_mode=CollectorAccountType.MP_ADMIN,
+        status=MonitoredAccountStatus.MONITORING,
         update_history=update_history,
         ai_relevance_history=ai_relevance_history,
+        strategy_config={},
     )
     test_db.add(account)
     await test_db.commit()
@@ -187,10 +205,10 @@ async def mock_proxy(test_db: AsyncSession) -> Proxy:
 
 
 @pytest_asyncio.fixture
-async def mock_article(test_db: AsyncSession, mock_account: Account) -> Article:
+async def mock_article(test_db: AsyncSession, mock_account: MonitoredAccount) -> Article:
     """Create a test article."""
     article = Article(
-        account_id=mock_account.id,
+        monitored_account_id=mock_account.id,
         title="Test Article",
         content="This is test content about sports and games.",
         url="https://mp.weixin.qq.com/s/test_article",

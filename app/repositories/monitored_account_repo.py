@@ -19,6 +19,10 @@ class MonitoredAccountRepository(BaseRepository):
         result = await self.db.execute(Select(MonitoredAccount).where(MonitoredAccount.biz == biz))
         return result.scalar_one_or_none()
 
+    async def get_by_feed_token(self, feed_token: str) -> MonitoredAccount | None:
+        result = await self.db.execute(Select(MonitoredAccount).where(MonitoredAccount.feed_token == feed_token))
+        return result.scalar_one_or_none()
+
     async def get_by_owner_and_biz(
         self,
         owner_user_id: uuid.UUID,

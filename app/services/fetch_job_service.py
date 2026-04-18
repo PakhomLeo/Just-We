@@ -45,3 +45,24 @@ class FetchJobService:
 
     async def list_recent(self, limit: int = 50) -> list[FetchJob]:
         return await self.repo.get_recent(limit=limit)
+
+    async def get_running_history_backfill(self, monitored_account_id: int) -> FetchJob | None:
+        return await self.repo.get_running_for_monitored_account(
+            monitored_account_id,
+            FetchJobType.HISTORY_BACKFILL,
+        )
+
+    async def get_latest_history_backfill(self, monitored_account_id: int) -> FetchJob | None:
+        return await self.repo.get_latest_for_monitored_account(
+            monitored_account_id,
+            FetchJobType.HISTORY_BACKFILL,
+        )
+
+    async def request_stop_history_backfill(self, monitored_account_id: int) -> FetchJob | None:
+        job = await self.get_running_history_backfill(monitored_account_id)
+        if job is None:
+            return None
+        payload = dict(job.payload or {})
+        payload["stop_requested"] = True
+        payload.setdefault("failure_category", "stopped")
+        return await self.mark_failed(job, "History backfill stopped by user", payload=payload)

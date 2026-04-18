@@ -7,14 +7,13 @@ weights based on update frequency, recency, AI-assessed relevance, and stability
 Score Formula:
     Score = 0.35*Frequency + 0.25*Recency + 0.25*Relevance + 0.15*Stability
 
-Author: DynamicWePubMonitor
+Author: Just-We
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from app.core.config import get_settings
-from app.models.account import Account
 
 
 settings = get_settings()
@@ -37,6 +36,16 @@ HISTORY_RETENTION_DAYS = 90
 # Burst detection threshold
 BURST_UPDATE_COUNT = 3
 BURST_GRACE_PERIOD_DAYS = 30
+
+
+class WeightSubject(Protocol):
+    current_tier: int
+    composite_score: float
+    update_history: dict[str, Any]
+    ai_relevance_history: dict[str, Any]
+    manual_override: dict[str, Any] | None
+    last_updated: datetime | None
+    last_published_at: datetime | None
 
 
 class DynamicWeightAdjuster:
@@ -78,6 +87,13 @@ class DynamicWeightAdjuster:
         if abs(total_ratio - 1.0) > 0.001:
             raise ValueError(f"Weight ratios must sum to 1.0, got {total_ratio}")
 
+    @staticmethod
+    def _as_utc_datetime(value: datetime) -> datetime:
+        """Normalize naive and aware datetimes before comparing them."""
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
     def calculate_frequency_score(
         self,
         update_history: dict[str, int],
@@ -108,7 +124,7 @@ class DynamicWeightAdjuster:
         recent_updates = {}
         for timestamp_str, count in update_history.items():
             try:
-                timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                timestamp = self._as_utc_datetime(datetime.fromisoformat(timestamp_str.replace("Z", "+00:00")))
                 if timestamp >= cutoff_date:
                     recent_updates[timestamp] = count
             except (ValueError, TypeError):
@@ -169,6 +185,7 @@ class DynamicWeightAdjuster:
             return 50.0
 
         now = datetime.now(timezone.utc)
+        last_updated = self._as_utc_datetime(last_updated)
         days_since_update = (now - last_updated).days
 
         if days_since_update <= 1:
@@ -279,7 +296,7 @@ class DynamicWeightAdjuster:
         recent_updates = []
         for timestamp_str, count in update_history.items():
             try:
-                timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                timestamp = self._as_utc_datetime(datetime.fromisoformat(timestamp_str.replace("Z", "+00:00")))
                 if timestamp >= cutoff_date:
                     recent_updates.append((timestamp, count))
             except (ValueError, TypeError):
@@ -325,17 +342,17 @@ class DynamicWeightAdjuster:
 
     def calculate_score(
         self,
-        account: Account,
+        account: WeightSubject,
         new_article_count: int = 0,
         ai_result: dict[str, Any] | None = None,
     ) -> float:
         """
-        Calculate the composite score for an account.
+        Calculate the composite score for a monitored account.
 
         Score = 0.35*Frequency + 0.25*Recency + 0.25*Relevance + 0.15*Stability
 
         Args:
-            account: Account model instance
+            account: Monitored account-like object
             new_article_count: Number of new articles in this fetch
             ai_result: AI analysis result for current fetch
 
@@ -348,8 +365,9 @@ class DynamicWeightAdjuster:
             new_article_count,
         )
 
+        recency_source = getattr(account, "last_published_at", None) or getattr(account, "last_updated", None)
         recency = self.calculate_recency_score(
-            account.last_updated,
+            recency_source,
             account.update_history or {},
             new_article_count,
         )
@@ -400,12 +418,12 @@ class DynamicWeightAdjuster:
         else:
             return 5
 
-    def apply_manual_override(self, account: Account) -> bool:
+    def apply_manual_override(self, account: WeightSubject) -> bool:
         """
         Check if manual override is active and apply it.
 
         Args:
-            account: Account model instance
+            account: Monitored account-like object
 
         Returns:
             True if manual override is active, False otherwise
@@ -425,12 +443,12 @@ class DynamicWeightAdjuster:
 
         return True
 
-    def get_next_check_interval(self, account: Account) -> int:
+    def get_next_check_interval(self, account: WeightSubject) -> int:
         """
         Get the next check interval in hours based on tier.
 
         Args:
-            account: Account model instance
+            account: Monitored account-like object
 
         Returns:
             Check interval in hours
@@ -439,7 +457,7 @@ class DynamicWeightAdjuster:
 
     def update_after_fetch(
         self,
-        account: Account,
+        account: WeightSubject,
         new_articles: list[dict[str, Any]],
         ai_result: dict[str, Any] | None,
         fetch_time: datetime | None = None,
@@ -450,7 +468,7 @@ class DynamicWeightAdjuster:
         This is the main entry point for weight adjustment after fetching.
 
         Args:
-            account: Account model instance
+            account: Monitored account-like object
             new_articles: List of new articles fetched
             ai_result: AI analysis result for the articles
             fetch_time: Timestamp of the fetch (defaults to now)
@@ -510,6 +528,10 @@ class DynamicWeightAdjuster:
             ai_relevance_history[timestamp_str] = {
                 "ratio": ai_result.get("ratio", 0),
                 "reason": ai_result.get("reason", ""),
+                "match": ai_result.get("target_match"),
+                "target_type": ai_result.get("target_type"),
+                "text_summary": (ai_result.get("text_analysis") or {}).get("summary") if isinstance(ai_result.get("text_analysis"), dict) else None,
+                "image_summary": (ai_result.get("image_analysis") or {}).get("summary") if isinstance(ai_result.get("image_analysis"), dict) else None,
             }
 
         # Clean old AI history
@@ -535,7 +557,9 @@ class DynamicWeightAdjuster:
                     account.update_history or {}, new_article_count
                 ),
                 "recency": self.calculate_recency_score(
-                    account.last_updated, account.update_history or {}, new_article_count
+                    getattr(account, "last_published_at", None) or getattr(account, "last_updated", None),
+                    account.update_history or {},
+                    new_article_count,
                 ),
                 "relevance": self.calculate_relevance_score(
                     account.ai_relevance_history or {}, ai_result
@@ -574,15 +598,6 @@ class DynamicWeightAdjuster:
                 last_updated_dt = datetime.fromisoformat(last_updated.replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 pass
-
-        # Create a mock account object
-        class MockAccount:
-            def __init__(self):
-                self.update_history = update_history
-                self.ai_relevance_history = ai_relevance_history
-                self.last_updated = last_updated_dt
-
-        mock_account = MockAccount()
 
         # Calculate components
         frequency = self.calculate_frequency_score(update_history, new_article_count)

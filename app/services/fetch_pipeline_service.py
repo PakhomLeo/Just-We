@@ -243,9 +243,10 @@ class FetchPipelineService:
             for update in unique_updates:
                 detail = await self._run_article_detail_stage(monitored, collector, update)
                 detail_proxy = await self.fetcher.get_detail_proxy_for_mode(collector.account_type)
+                localize_images = collector.account_type != CollectorAccountType.WEREAD
                 parsed = await self.parser.parse_article(
                     detail.get("raw_content", ""),
-                    download_images=True,
+                    download_images=localize_images,
                     storage_id=monitored.id,
                     proxy=detail_proxy,
                 )
@@ -279,13 +280,15 @@ class FetchPipelineService:
                 ]
                 localized_cover_image = None
                 cover_source = detail.get("cover_image") or update.cover_image
-                if cover_source:
+                if cover_source and localize_images:
                     local_cover = await self.parser.image_downloader.download_image(
                         cover_source,
                         monitored.id,
                         proxy=detail_proxy,
                     )
                     localized_cover_image = self.parser.image_downloader.to_public_url(local_cover) if local_cover else cover_source
+                elif cover_source:
+                    localized_cover_image = cover_source
                 article = await self.article_service.save_article(
                     monitored_account_id=monitored.id,
                     title=detail.get("title") or parsed.title or update.title,

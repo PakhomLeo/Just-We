@@ -102,7 +102,7 @@ class ParserService:
         match = re.search(r"item_show_type\s*[:=]\s*['\"]?(\d+)", raw)
         if match:
             item_show_type = match.group(1)
-        if soup.find("mpvoice") or "voice_encode_fileid" in raw:
+        if soup.find("mpvoice") or soup.find(class_="wechat-audio-placeholder"):
             return "audio"
         if "video_iframe" in raw or "iframe/video" in raw or soup.find("iframe"):
             return "video"
@@ -115,6 +115,19 @@ class ParserService:
         if images and len(text.strip()) < 80:
             return "image_only"
         return "article"
+
+    def _sanitize_style_value(self, value: object) -> str | None:
+        hidden_properties = {"display", "opacity", "visibility"}
+        declarations = []
+        for declaration in str(value or "").split(";"):
+            if ":" not in declaration:
+                continue
+            property_name, property_value = declaration.split(":", 1)
+            property_name = property_name.strip().lower()
+            if property_name in hidden_properties:
+                continue
+            declarations.append(f"{property_name}: {property_value.strip()}")
+        return "; ".join(declarations) or None
 
     def _sanitize_rich_html(self, html_content: str) -> tuple[str, list[str], str]:
         soup = BeautifulSoup(html_content, "lxml")
@@ -147,6 +160,12 @@ class ParserService:
             "code": set(),
         }
         allowed_tags = set(safe_attrs)
+        if getattr(container, "attrs", None) and container.get("style"):
+            style = self._sanitize_style_value(container.get("style"))
+            if style:
+                container["style"] = style
+            else:
+                del container.attrs["style"]
 
         for tag in list(container.find_all(True)):
             if tag.name == "mpvoice":
@@ -161,6 +180,13 @@ class ParserService:
             for attr, value in attrs.items():
                 if attr.startswith("on") or attr not in safe_attrs[tag.name]:
                     del tag.attrs[attr]
+                    continue
+                if attr == "style":
+                    style = self._sanitize_style_value(value)
+                    if style:
+                        tag.attrs[attr] = style
+                    else:
+                        del tag.attrs[attr]
                     continue
                 if attr in {"href", "src", "data-src"}:
                     value_str = value[0] if isinstance(value, list) else str(value)
@@ -230,7 +256,7 @@ class ParserService:
 
         cleaned_content, image_urls, content_html = self._sanitize_rich_html(raw_html)
         original_images = list(image_urls)
-        content_type = self._classify_content_type(soup, cleaned_content, image_urls)
+        content_type = self._classify_content_type(BeautifulSoup(content_html, "lxml"), cleaned_content, image_urls)
 
         # Download and localize images if requested
         if download_images and image_urls and self.image_downloader and storage_id is not None:

@@ -48,6 +48,44 @@ async def test_parser_preserves_sanitized_rich_html_and_image_order():
 
 
 @pytest.mark.asyncio
+async def test_parser_ignores_global_wechat_voice_script_when_classifying_article():
+    html = """
+    <html><body>
+      <h1 id="activity-name">普通图文</h1>
+      <script>var voice_encode_fileid = "";</script>
+      <div id="js_content">
+        <p>这是一篇普通图文正文，页面全局脚本不应该把它识别为音频。</p>
+        <p>正文长度足够用于普通文章分类。</p>
+      </div>
+    </body></html>
+    """
+
+    parsed = await ParserService().parse_article(html, download_images=False)
+
+    assert parsed.content_type == "article"
+
+
+@pytest.mark.asyncio
+async def test_parser_removes_hidden_wechat_content_style_from_rich_html():
+    html = """
+    <html><body>
+      <h1 id="activity-name">可见图文</h1>
+      <div id="js_content" style="visibility: hidden; opacity: 0;">
+        <section style="margin-bottom: 12px; visibility: hidden;">
+          <span>富文本预览应该可见</span>
+        </section>
+      </div>
+    </body></html>
+    """
+
+    parsed = await ParserService().parse_article(html, download_images=False)
+
+    assert "visibility" not in (parsed.content_html or "")
+    assert "opacity" not in (parsed.content_html or "")
+    assert "富文本预览应该可见" in (parsed.content_html or "")
+
+
+@pytest.mark.asyncio
 async def test_monitored_source_does_not_generate_fake_fakeid(test_db: AsyncSession, mock_user):
     service = MonitoringSourceService(test_db)
 

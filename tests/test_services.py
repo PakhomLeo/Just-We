@@ -19,6 +19,7 @@ from app.services.fetcher_service import DetailDocumentResponse, FetcherService
 from app.services.monitoring_source_service import MonitoringSourceService
 from app.services.notification_service import NotificationService
 from app.services.qr_login_service import QRLoginService
+from app.services.rate_limit_service import rate_limit_service
 from app.services.scheduler_service import SchedulerService, stop_scheduler
 from app.models.article import Article
 from app.models.collector_account import (
@@ -995,6 +996,109 @@ class TestFetcherService:
 
         assert detail["title"] == "OK"
         assert calls == [("https://mp.weixin.qq.com/s/test", False)]
+
+    @pytest.mark.asyncio
+    async def test_weread_detail_caps_dynamic_interval(self, test_db: AsyncSession):
+        """WeRead platform detail fetches should not inherit multi-minute MP-admin pacing."""
+        fetcher = FetcherService(test_db)
+        collector = CollectorAccount(
+            owner_user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            account_type=CollectorAccountType.WEREAD,
+            display_name="Weread Collector",
+            credentials={"token": "platform-token"},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={"provider": "weread_platform"},
+        )
+
+        async def fake_fetch_document(url, headers, proxy_url, prefer_curl=True):
+            return DetailDocumentResponse(
+                status_code=200,
+                text=(
+                    "<html><head><meta property=\"og:title\" content=\"OK\" />"
+                    "<meta property=\"og:image\" content=\"https://cdn.example.com/a.jpg\" /></head>"
+                    "<body><div id=\"js_content\">article</div></body></html>"
+                ),
+                final_url=url,
+                headers={},
+            )
+
+        fetcher.weread_fetcher._fetch_document = fake_fetch_document
+        fetcher.weread_fetcher._sleep_with_policy = AsyncMock()
+        rate_limit_service.reset()
+        try:
+            await fetcher.weread_fetcher.fetch_article_detail("https://mp.weixin.qq.com/s/test", collector, None)
+            assert rate_limit_service.detail_min_interval_seconds <= 2.0
+        finally:
+            rate_limit_service.reset()
+
+    @pytest.mark.asyncio
+    async def test_weread_platform_retries_transient_empty_article_list(self, test_db: AsyncSession):
+        """The WeRead platform can return HTTP 200 with an empty list transiently."""
+        fetcher = FetcherService(test_db)
+        owner_user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        monitored = MonitoredAccount(
+            owner_user_id=owner_user_id,
+            biz="MP_WXS_1",
+            fakeid="MP_WXS_1",
+            name="Weread Feed",
+            source_url="https://mp.weixin.qq.com/s/source",
+            current_tier=2,
+            composite_score=50.0,
+            primary_fetch_mode=CollectorAccountType.WEREAD,
+            fallback_fetch_mode=None,
+            status=MonitoredAccountStatus.MONITORING,
+            update_history={},
+            ai_relevance_history={},
+            strategy_config={"weread_empty_retry_count": 1},
+            metadata_json={"weread_platform_mp_id": "MP_WXS_1"},
+        )
+        collector = CollectorAccount(
+            owner_user_id=owner_user_id,
+            account_type=CollectorAccountType.WEREAD,
+            display_name="Weread Collector",
+            credentials={"token": "platform-token", "vid": 123},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={"provider": "weread_platform", "platform_url": "https://platform.example.com"},
+        )
+
+        class DummyResponse:
+            status_code = 200
+
+            def __init__(self, payload):
+                self.payload = payload
+
+            def json(self):
+                return self.payload
+
+        class DummyClient:
+            def __init__(self):
+                self.calls = 0
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def get(self, url, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    return DummyResponse([])
+                return DummyResponse([{"title": "A", "url": "https://mp.weixin.qq.com/s/a"}])
+
+        client = DummyClient()
+        fetcher.weread_fetcher._build_client = lambda proxy_url: client
+        monkey_sleep = AsyncMock()
+        with patch("app.services.fetcher_service.asyncio.sleep", monkey_sleep):
+            updates = await fetcher.weread_fetcher._fetch_platform_articles(monitored, collector, None)
+
+        assert client.calls == 2
+        assert updates[0].title == "A"
+        monkey_sleep.assert_awaited_once_with(0.5)
 
 
 class TestFetchPipelineService:

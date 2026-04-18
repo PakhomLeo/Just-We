@@ -380,6 +380,16 @@ class BaseChannelFetcher:
     ) -> dict[str, Any]:
         policy = await SystemConfigService(self.db).get_or_create_fetch_policy()
         rate_limit_service.configure(policy.rate_limit_policy or {})
+        if collector_account.account_type == CollectorAccountType.WEREAD:
+            metadata = collector_account.metadata_json or {}
+            try:
+                max_interval = float(metadata.get("detail_min_interval_seconds") or 2.0)
+            except (TypeError, ValueError):
+                max_interval = 2.0
+            rate_limit_service.detail_min_interval_seconds = min(
+                rate_limit_service.detail_min_interval_seconds,
+                max_interval,
+            )
         account_key = str(getattr(collector_account, "id", "") or collector_account.account_type.value)
         can_request, reason = await rate_limit_service.can_request_async(account_key)
         if not can_request and reason == "detail_min_interval":
@@ -583,29 +593,42 @@ class WeReadFetcher(BaseChannelFetcher):
                 mp_id = self._extract_platform_mp_id(resolve_response.json())
                 if not mp_id:
                     return []
-            response = await client.get(
-                f"{base_url}/api/v2/platform/mps/{mp_id}/articles",
-                params={"page": int((monitored_account.strategy_config or {}).get("weread_page", 1))},
-                headers=headers,
-            )
-            if response.status_code in {401, 403}:
-                raise FetchFailedException(
-                    monitored_account.id,
-                    "WeRead platform token is invalid",
-                    category=FETCH_CATEGORY_CREDENTIALS,
-                    retryable=False,
+            updates: list[ArticleUpdate] = []
+            retry_count = int((monitored_account.strategy_config or {}).get("weread_empty_retry_count", 8))
+            for attempt in range(max(retry_count, 0) + 1):
+                response = await client.get(
+                    f"{base_url}/api/v2/platform/mps/{mp_id}/articles",
+                    params={"page": int((monitored_account.strategy_config or {}).get("weread_page", 1))},
+                    headers=headers,
                 )
-            if response.status_code == 429:
+                if response.status_code in {401, 403}:
+                    raise FetchFailedException(
+                        monitored_account.id,
+                        "WeRead platform token is invalid",
+                        category=FETCH_CATEGORY_CREDENTIALS,
+                        retryable=False,
+                    )
+                if response.status_code == 429:
+                    raise FetchFailedException(
+                        monitored_account.id,
+                        "WeRead platform rate limited",
+                        category=FETCH_CATEGORY_RISK,
+                        retryable=True,
+                    )
+                if response.status_code >= 400:
+                    return []
+                updates = self._parse_platform_articles(response.json(), monitored_account)
+                if updates or attempt >= retry_count:
+                    break
+                await asyncio.sleep(0.5)
+            if not updates and mp_id:
                 raise FetchFailedException(
                     monitored_account.id,
-                    "WeRead platform rate limited",
-                    category=FETCH_CATEGORY_RISK,
+                    "WeRead platform returned an empty article list after retries",
+                    category=FETCH_CATEGORY_TEMPORARY,
                     retryable=True,
                 )
-            if response.status_code >= 400:
-                return []
-            updates = self._parse_platform_articles(response.json(), monitored_account)
-            max_items = int((monitored_account.strategy_config or {}).get("weread_max_items", 1))
+            max_items = int((monitored_account.strategy_config or {}).get("weread_max_items", 10))
             return updates[:max(max_items, 1)]
 
     def _build_history_urls(self, monitored_account: MonitoredAccount) -> list[str]:

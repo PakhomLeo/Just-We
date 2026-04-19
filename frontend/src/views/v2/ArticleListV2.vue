@@ -50,12 +50,15 @@
             <div class="article-copy">
               <h3 @click="router.push(`/articles/${article.id}`)">{{ article.title }}</h3>
               <p>{{ article.account_name || article.author || '-' }} · {{ formatDateTime(article.published_at) }}</p>
-              <div class="pill-line">
-                <V2StatusPill :label="article.ai_target_match || '未判断'" :tone="article.ai_target_match === '是' ? 'success' : article.ai_target_match === '不是' ? 'neutral' : 'warning'" />
-                <V2StatusPill :label="article.ai_analysis_status || 'AI 待处理'" :tone="article.ai_analysis_status === 'success' ? 'success' : article.ai_analysis_status === 'failed' ? 'danger' : 'warning'" />
-                <V2StatusPill :label="contentTypeLabel(article.content_type)" tone="purple" />
-                <V2StatusPill :label="article.metadata_json?.fetch_category || article.fetch_mode || '抓取分类未知'" tone="yellow" />
-              </div>
+            </div>
+            <el-button class="expand-card-button" @click="toggleArticleDetails(article.id)">{{ isExpanded(article.id) ? '收起' : '展开' }}</el-button>
+          </div>
+          <div v-if="isExpanded(article.id)" class="article-details">
+            <div class="pill-line">
+              <V2StatusPill :label="article.ai_target_match || '未判断'" :tone="article.ai_target_match === '是' ? 'success' : article.ai_target_match === '不是' ? 'neutral' : 'warning'" />
+              <V2StatusPill :label="article.ai_analysis_status || 'AI 待处理'" :tone="article.ai_analysis_status === 'success' ? 'success' : article.ai_analysis_status === 'failed' ? 'danger' : 'warning'" />
+              <V2StatusPill :label="contentTypeLabel(article.content_type)" tone="purple" />
+              <V2StatusPill :label="article.metadata_json?.fetch_category || article.fetch_mode || '抓取分类未知'" tone="yellow" />
             </div>
             <div class="v2-button-row">
               <el-button size="small" @click="router.push(`/articles/${article.id}`)">详情</el-button>
@@ -109,6 +112,7 @@ const aiStatus = ref('')
 const contentType = ref('')
 const reanalyzing = ref({})
 const deleting = ref({})
+const expandedArticles = ref(new Set())
 
 const displayArticles = computed(() => articles.value.filter(item => {
   if (searchQuery.value && !String(item.title || '').toLowerCase().includes(searchQuery.value.toLowerCase())) return false
@@ -194,6 +198,17 @@ function openUrl(url) {
 function contentTypeLabel(value) {
   return ({ article: '普通文章', image_text: '图文消息', image_only: '纯图片', short_content: '短内容', audio: '音频', video: '视频', media_share: '媒体分享' })[value] || value || '未知类型'
 }
+
+function isExpanded(id) {
+  return expandedArticles.value.has(id)
+}
+
+function toggleArticleDetails(id) {
+  const next = new Set(expandedArticles.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedArticles.value = next
+}
 </script>
 
 <style lang="scss" scoped>
@@ -246,9 +261,17 @@ function contentTypeLabel(value) {
   }
 }
 
-.article-main > .v2-button-row {
+.expand-card-button {
   flex-shrink: 0;
-  justify-content: flex-end;
+}
+
+.article-details {
+  margin-top: 16px;
+  display: grid;
+  gap: 14px;
+  border-radius: 20px;
+  background: rgba(#fff, 0.45);
+  padding: 16px;
 }
 
 .pill-line {

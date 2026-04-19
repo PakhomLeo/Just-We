@@ -24,6 +24,24 @@
 
     <V2Section title="代理与服务绑定" subtitle="展开行可以编辑服务绑定；不兼容服务必须说明原因。">
       <el-table :data="proxies" v-loading="loading" row-key="id" empty-text="暂无代理" @expand-change="handleExpandChange">
+        <el-table-column label="代理" min-width="190">
+          <template #default="{ row }"><strong>#{{ row.id }} {{ row.host }}:{{ row.port }}</strong></template>
+        </el-table-column>
+        <el-table-column label="类型" width="150">
+          <template #default="{ row }">{{ proxyKindLabel(row.proxy_kind) }}</template>
+        </el-table-column>
+        <el-table-column label="轮换" width="130">
+          <template #default="{ row }">{{ row.rotation_mode || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="成功率" width="100">
+          <template #default="{ row }">{{ Math.round(row.success_rate || 0) }}%</template>
+        </el-table-column>
+        <el-table-column label="冷却" min-width="150">
+          <template #default="{ row }">{{ formatDateTime(row.fail_until) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }"><V2StatusPill :label="row.is_active ? '启用' : '停用'" :tone="row.is_active ? 'success' : 'warning'" /></template>
+        </el-table-column>
         <el-table-column type="expand" width="92">
           <template #default="{ row }">
             <div class="proxy-expand">
@@ -52,24 +70,6 @@
               </div>
             </div>
           </template>
-        </el-table-column>
-        <el-table-column label="代理" min-width="190">
-          <template #default="{ row }"><strong>#{{ row.id }} {{ row.host }}:{{ row.port }}</strong></template>
-        </el-table-column>
-        <el-table-column label="类型" width="150">
-          <template #default="{ row }">{{ proxyKindLabel(row.proxy_kind) }}</template>
-        </el-table-column>
-        <el-table-column label="轮换" width="130">
-          <template #default="{ row }">{{ row.rotation_mode || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="成功率" width="100">
-          <template #default="{ row }">{{ Math.round(row.success_rate || 0) }}%</template>
-        </el-table-column>
-        <el-table-column label="冷却" min-width="150">
-          <template #default="{ row }">{{ formatDateTime(row.fail_until) }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }"><V2StatusPill :label="row.is_active ? '启用' : '停用'" :tone="row.is_active ? 'success' : 'warning'" /></template>
         </el-table-column>
       </el-table>
     </V2Section>

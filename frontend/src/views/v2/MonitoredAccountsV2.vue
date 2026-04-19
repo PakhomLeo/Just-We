@@ -3,7 +3,7 @@
     title="公众号监测"
     subtitle="从公众号文章链接创建监测对象；解析 fakeid、能力标签、Feed、历史回填和 Tier 策略。"
     watermark="MONITORED"
-    action-rail="监测功能：解析并创建 / 复制 RSS / 导出 OPML / 导出 CSV / 手动刷新 / 历史回填 / 停止回填 / 查看能力标签"
+    action-rail="监测功能：解析并创建 / 复制 RSS / 手动刷新 / 历史回填 / 停止回填 / 查看能力标签"
   >
     <template #header-actions>
       <div class="v2-page-actions">
@@ -13,8 +13,6 @@
           <el-option label="风险观察" value="risk_observed" />
           <el-option label="失效" value="invalid" />
         </el-select>
-        <el-button @click="handleExport('opml')">导出 OPML</el-button>
-        <el-button @click="handleExport('csv')">导出 CSV</el-button>
         <el-button type="warning" :disabled="!canManageAccounts" @click="focusCreate">添加监测</el-button>
       </div>
     </template>
@@ -116,7 +114,6 @@ import V2Section from '@/components/v2/V2Section.vue'
 import V2StatusPill from '@/components/v2/V2StatusPill.vue'
 import { usePermissions } from '@/composables/usePermissions'
 import { useAuthStore } from '@/stores/auth'
-import { exportFeeds } from '@/api/feeds'
 import {
   createMonitoredAccount,
   deleteMonitoredAccount,
@@ -127,7 +124,7 @@ import {
   triggerMonitoredFetch,
   updateMonitoredAccount
 } from '@/api/monitoredAccounts'
-import { apiBaseUrl, downloadBlob, formatDateTime } from './helpers'
+import { apiBaseUrl, formatDateTime } from './helpers'
 
 const router = useRouter()
 const { canManageAccounts } = usePermissions()
@@ -246,11 +243,6 @@ async function copyAggregateFeed() {
   }
   await navigator.clipboard.writeText(`${apiBaseUrl()}/feeds/all/${value}.rss`)
   ElMessage.success('聚合 Feed 地址已复制')
-}
-
-async function handleExport(format) {
-  const response = await exportFeeds(format)
-  downloadBlob(response, `just-we-feeds.${format}`, format === 'opml' ? 'text/x-opml;charset=utf-8' : 'text/csv;charset=utf-8')
 }
 
 function openEdit(account) {

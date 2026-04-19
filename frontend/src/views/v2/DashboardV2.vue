@@ -1,7 +1,6 @@
 <template>
   <V2Page
     title="今日监测控制台"
-    subtitle="一屏发现账号、代理、AI、抓取任务的阻塞点，并提供立即抓取全部入口。"
     watermark="DASHBOARD"
     action-rail="总览功能：抓取全部 / 查看实时队列 / 查看阻塞告警 / 代理健康 / AI JSON 失败 / 跳转作业日志"
   >
@@ -65,21 +64,21 @@
         <el-button class="section-link" @click="router.push('/capture-accounts')">查看抓取账号</el-button>
       </V2Section>
 
-      <V2Section title="代理与日志摘要">
-        <div class="v2-grid v2-grid-2">
-          <div class="summary-box">代理总数 <strong>{{ proxyStats.total || 0 }}</strong></div>
-          <div class="summary-box">冷却中 <strong>{{ proxyStats.cooling || 0 }}</strong></div>
-          <div class="summary-box">日志总数 <strong>{{ logStats.total || 0 }}</strong></div>
-          <div class="summary-box">24h 失败 <strong>{{ logStats.failed_24h || logStats.failure_24h || 0 }}</strong></div>
-        </div>
-      </V2Section>
-
       <V2Section title="最新文章">
         <div class="article-mini-list">
           <article v-for="article in articles.slice(0, 5)" :key="article.id" @click="router.push(`/articles/${article.id}`)">
             <strong>{{ article.title }}</strong>
             <span>{{ article.account_name || article.author || '-' }} · {{ formatDateTime(article.published_at) }}</span>
           </article>
+        </div>
+      </V2Section>
+
+      <V2Section title="代理与日志摘要">
+        <div class="v2-grid v2-grid-2">
+          <div class="summary-box">代理总数 <strong>{{ proxyStats.total || 0 }}</strong></div>
+          <div class="summary-box">冷却中 <strong>{{ proxyStats.cooling || 0 }}</strong></div>
+          <div class="summary-box">日志总数 <strong>{{ logStats.total || 0 }}</strong></div>
+          <div class="summary-box">24h 失败 <strong>{{ logStats.failed_24h || logStats.failure_24h || 0 }}</strong></div>
         </div>
       </V2Section>
     </div>

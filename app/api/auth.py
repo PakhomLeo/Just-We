@@ -3,11 +3,13 @@
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.dependencies import DbSession, CurrentUser
+from app.core.config import get_settings
 from app.schemas.auth import LoginRequest, RegisterRequest, Token, UserResponse
 from app.services.auth_service import AuthService
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+settings = get_settings()
 
 
 @router.post("/login", response_model=Token)
@@ -49,12 +51,25 @@ async def register(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
         )
+    if request.username:
+        if request.username == settings.default_admin_alias:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username is reserved",
+            )
+        existing_username = await auth_service.user_repo.get_by_username(request.username)
+        if existing_username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already registered",
+            )
 
     # Create user
     user = await auth_service.create_user(
         email=request.email,
         password=request.password,
         role=request.role.value,
+        username=request.username,
     )
 
     return user

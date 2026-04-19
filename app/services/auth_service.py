@@ -87,13 +87,15 @@ class AuthService:
             return None
 
     async def authenticate_user(self, email: str, password: str) -> User | None:
-        """Authenticate a user by email and password."""
-        lookup_email = email
-        if email == settings.default_admin_alias:
+        """Authenticate a user by email, username, or default admin alias."""
+        login_name = email.strip()
+        if login_name == settings.default_admin_alias:
             default_admin = await self.user_repo.get_by_email(settings.default_admin_email)
             user = default_admin or await self.user_repo.get_first_admin()
         else:
-            user = await self.user_repo.get_by_email(lookup_email)
+            user = await self.user_repo.get_by_email(login_name)
+            if user is None:
+                user = await self.user_repo.get_by_username(login_name)
         if user is None:
             return None
         if not self.verify_password(password, user.hashed_password):
@@ -105,6 +107,7 @@ class AuthService:
         email: str,
         password: str,
         role: str = "viewer",
+        username: str | None = None,
     ) -> User:
         """Create a new user."""
         from app.models.user import UserRole
@@ -114,6 +117,7 @@ class AuthService:
 
         user = await self.user_repo.create(
             email=email,
+            username=username.strip() if username else None,
             hashed_password=hashed_password,
             role=role_enum,
             is_active=True,

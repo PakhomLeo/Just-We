@@ -30,12 +30,10 @@
       <button class="icon-action" @click="showNotifications = true">
         <span class="bell">🔔</span><span v-if="notificationsStore.unreadCount" class="badge">{{ notificationsStore.unreadCount }}</span>
       </button>
-      <el-dropdown @command="handleCommand">
+      <el-dropdown popper-class="user-menu-popper" @command="handleCommand">
         <button class="user-chip">{{ displayUserName }}</button>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item disabled>{{ authStore.user?.role || 'viewer' }}</el-dropdown-item>
-            <el-dropdown-item command="settings" v-if="authStore.isAdmin">系统设置</el-dropdown-item>
             <el-dropdown-item command="logout">退出登录</el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -128,7 +126,6 @@ function handleCommand(command) {
     authStore.logout()
     router.push({ name: 'Login' })
   }
-  if (command === 'settings') router.push('/settings')
 }
 
 function formatDateTime(value) {
@@ -260,6 +257,27 @@ button {
   color: $v2-ink;
   padding: 12px 18px;
   white-space: nowrap;
+}
+
+:global(.user-menu-popper.el-popper) {
+  border: 1px solid rgba(#fff, 0.62);
+  border-radius: 22px;
+  background: rgba(226, 238, 245, 0.9);
+  box-shadow: 0 18px 45px rgba(74, 103, 125, 0.18), inset 0 1px 0 rgba(#fff, 0.62);
+  backdrop-filter: blur(18px) saturate(1.12);
+  overflow: hidden;
+}
+
+:global(.user-menu-popper .el-dropdown-menu) {
+  border: 0;
+  background: transparent;
+  padding: 8px;
+}
+
+:global(.user-menu-popper .el-dropdown-menu__item) {
+  border-radius: 999px;
+  color: $v2-ink;
+  font-weight: 950;
 }
 
 .v2-main {

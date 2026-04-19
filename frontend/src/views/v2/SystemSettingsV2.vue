@@ -20,8 +20,8 @@
           <el-form-item label="文字 API URL"><el-input v-model="settings.ai.text_api_url" /></el-form-item>
           <el-form-item label="文字 API Key"><el-input v-model="settings.ai.text_api_key" show-password /></el-form-item>
           <el-form-item label="文字模型"><el-input v-model="settings.ai.text_model" /></el-form-item>
-          <el-form-item label="文字解析关注内容"><el-input v-model="settings.ai.text_analysis_instruction" type="textarea" :rows="4" placeholder="填写希望 AI 从文章中提取或关注的内容，例如：商业模式、关键观点、风险信号。" /></el-form-item>
-          <el-form-item label="类型判断要求"><el-input v-model="settings.ai.type_judgment_instruction" type="textarea" :rows="4" placeholder="填写目标文章的判断标准，例如：只命中 AI 工程化、开源模型和开发者工具相关内容。" /></el-form-item>
+          <el-form-item label="文字解析关注内容"><el-input class="prompt-textarea" v-model="settings.ai.text_analysis_instruction" type="textarea" :rows="2" placeholder="填写希望 AI 从文章中提取或关注的内容，例如：商业模式、关键观点、风险信号。" /></el-form-item>
+          <el-form-item label="类型判断要求"><el-input class="prompt-textarea" v-model="settings.ai.type_judgment_instruction" type="textarea" :rows="2" placeholder="填写目标文章的判断标准，例如：只命中 AI 工程化、开源模型和开发者工具相关内容。" /></el-form-item>
         </el-form>
       </V2Section>
 
@@ -31,7 +31,7 @@
           <el-form-item label="图片 API URL"><el-input v-model="settings.ai.image_api_url" /></el-form-item>
           <el-form-item label="图片 API Key"><el-input v-model="settings.ai.image_api_key" show-password /></el-form-item>
           <el-form-item label="图片模型"><el-input v-model="settings.ai.image_model" /></el-form-item>
-          <el-form-item label="图片解析关注内容"><el-input v-model="settings.ai.image_analysis_instruction" type="textarea" :rows="6" placeholder="填写希望 AI 从配图中识别的内容，例如：图表结论、截图文字、产品界面、风险信息。" /></el-form-item>
+          <el-form-item label="图片解析关注内容"><el-input class="prompt-textarea" v-model="settings.ai.image_analysis_instruction" type="textarea" :rows="2" placeholder="填写希望 AI 从配图中识别的内容，例如：图表结论、截图文字、产品界面、风险信息。" /></el-form-item>
           <el-form-item class="full-width-control" label="超时秒数"><el-input-number v-model="settings.ai.timeout_seconds" :min="5" :max="300" /></el-form-item>
         </el-form>
       </V2Section>
@@ -331,6 +331,12 @@ function composeTypeJudgmentPrompt(instruction) {
   :deep(.el-input-number) {
     width: 100%;
   }
+}
+
+:deep(.prompt-textarea textarea) {
+  min-height: 72px !important;
+  height: 72px;
+  resize: none;
 }
 
 .compact-control-grid {

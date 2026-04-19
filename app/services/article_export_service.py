@@ -46,6 +46,14 @@ class ArticleExportService:
         )
         return result.scalar_one_or_none()
 
+    async def delete_record(self, record: ArticleExportRecord) -> None:
+        """Delete an export history record and its generated file if present."""
+        path = Path(self.settings.media_root) / record.file_path
+        if path.exists() and path.is_file():
+            path.unlink()
+        await self.db.delete(record)
+        await self.db.flush()
+
     async def create_export(self, payload: ArticleExportCreate, current_user) -> ArticleExportRecord:
         articles = await self._select_articles(payload, current_user)
         export_payload = self._build_payload(payload, articles)

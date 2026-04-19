@@ -85,6 +85,19 @@
     transform: translateY(1px) scale(0.98);
   }
 
+  .v2-page-actions .el-button {
+    min-height: 42px;
+    padding: 0 24px;
+    font-size: 15px;
+    font-weight: 950;
+  }
+
+  .v2-page-actions .el-select__wrapper,
+  .v2-page-actions .el-input__wrapper {
+    min-height: 42px;
+    border-radius: 999px;
+  }
+
   .el-button--primary {
     --el-button-bg-color: #{$v2-purple};
     --el-button-border-color: #{$v2-purple};

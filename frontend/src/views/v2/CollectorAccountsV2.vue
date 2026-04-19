@@ -65,58 +65,62 @@
       </V2Section>
 
       <V2Section title="账号健康与凭证" subtitle="展示风险、冷却、fakeid、锁定代理和最近异常。">
-        <el-table :data="filteredAccounts" v-loading="loading" row-key="id" empty-text="暂无抓取账号">
-          <el-table-column type="expand" width="92">
-            <template #default="{ row }">
-              <div class="collector-expand">
-                <div class="collector-action-row">
-                  <el-dropdown trigger="click" @command="command => handleAccountCommand(command, row)">
-                    <el-button size="small" :disabled="!canManageAccounts">
-                      更多操作 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-                    </el-button>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item command="health">健康检查</el-dropdown-item>
-                        <el-dropdown-item v-if="row.account_type === 'mp_admin'" command="fakeid">发现 Fakeid</el-dropdown-item>
-                        <el-dropdown-item command="proxy">{{ accountProxyValue(row) ? '更换/解除代理' : '绑定代理' }}</el-dropdown-item>
-                        <el-dropdown-item command="delete" divided>删除账号</el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </div>
-                <div class="collector-detail-grid">
-                  <article>
-                    <span>Fakeid</span>
-                    <strong>{{ row.metadata_json?.fakeid || (row.account_type === 'mp_admin' ? '未发现' : '-') }}</strong>
-                  </article>
-                  <article>
-                    <span>账号代理</span>
-                    <strong>{{ accountProxyValue(row) ? accountProxyLabelById(accountProxyValue(row)) : '直连' }}</strong>
-                  </article>
-                  <article>
-                    <span>冷却至</span>
-                    <strong>{{ formatDateTime(row.cool_until) }}</strong>
-                  </article>
-                  <article>
-                    <span>过期时间</span>
-                    <strong>{{ formatDateTime(row.expires_at) }}</strong>
-                  </article>
-                  <article>
-                    <span>最近失败</span>
-                    <strong>{{ row.last_error_category || row.last_error_message || '-' }}</strong>
-                  </article>
+        <div v-if="!filteredAccounts.length && !loading">
+          <V2Empty title="暂无抓取账号" description="生成二维码并完成登录后，账号会显示在这里。" />
+        </div>
+        <div v-else v-loading="loading" class="collector-list">
+          <article v-for="account in filteredAccounts" :key="account.id" class="collector-card">
+            <div class="collector-main">
+              <div class="collector-summary">
+                <h3>{{ account.display_name || `#${account.id}` }}</h3>
+                <div class="pill-line">
+                  <V2StatusPill :label="account.account_type === 'weread' ? '微信读书' : '公众号管理员'" tone="purple" />
+                  <V2StatusPill :label="healthLabel(account.health_status)" :tone="account.health_status === 'normal' ? 'success' : 'warning'" />
                 </div>
               </div>
-            </template>
-          </el-table-column>
-          <el-table-column prop="display_name" label="账号" min-width="160" />
-          <el-table-column label="类型" width="120">
-            <template #default="{ row }"><V2StatusPill :label="row.account_type === 'weread' ? '微信读书' : '公众号管理员'" tone="purple" /></template>
-          </el-table-column>
-          <el-table-column label="健康" width="100">
-            <template #default="{ row }"><V2StatusPill :label="healthLabel(row.health_status)" :tone="row.health_status === 'normal' ? 'success' : 'warning'" /></template>
-          </el-table-column>
-        </el-table>
+              <el-button class="expand-card-button" @click="toggleAccountDetails(account.id)">{{ isExpanded(account.id) ? '收起' : '展开' }}</el-button>
+            </div>
+            <div v-if="isExpanded(account.id)" class="collector-expand">
+              <div class="collector-detail-grid">
+                <article>
+                  <span>Fakeid</span>
+                  <strong>{{ account.metadata_json?.fakeid || (account.account_type === 'mp_admin' ? '未发现' : '-') }}</strong>
+                </article>
+                <article>
+                  <span>账号代理</span>
+                  <strong>{{ accountProxyValue(account) ? accountProxyLabelById(accountProxyValue(account)) : '直连' }}</strong>
+                </article>
+                <article>
+                  <span>冷却至</span>
+                  <strong>{{ formatDateTime(account.cool_until) }}</strong>
+                </article>
+                <article>
+                  <span>过期时间</span>
+                  <strong>{{ formatDateTime(account.expires_at) }}</strong>
+                </article>
+                <article>
+                  <span>最近失败</span>
+                  <strong>{{ account.last_error_category || account.last_error_message || '-' }}</strong>
+                </article>
+              </div>
+              <div class="collector-action-row">
+                <el-dropdown trigger="click" @command="command => handleAccountCommand(command, account)">
+                  <el-button size="small" :disabled="!canManageAccounts">
+                    更多操作 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="health">健康检查</el-dropdown-item>
+                      <el-dropdown-item v-if="account.account_type === 'mp_admin'" command="fakeid">发现 Fakeid</el-dropdown-item>
+                      <el-dropdown-item command="proxy">{{ accountProxyValue(account) ? '更换/解除代理' : '绑定代理' }}</el-dropdown-item>
+                      <el-dropdown-item command="delete" divided>删除账号</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </div>
+            </div>
+          </article>
+        </div>
       </V2Section>
     </div>
 
@@ -143,6 +147,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown } from '@element-plus/icons-vue'
 import V2MetricCard from '@/components/v2/V2MetricCard.vue'
+import V2Empty from '@/components/v2/V2Empty.vue'
 import V2Page from '@/components/v2/V2Page.vue'
 import V2Section from '@/components/v2/V2Section.vue'
 import V2StatusPill from '@/components/v2/V2StatusPill.vue'
@@ -174,6 +179,7 @@ const qrStatus = ref('waiting')
 const qrExpireAt = ref('')
 const qrMessage = ref('')
 const proxyDialog = reactive({ visible: false, account: null, proxy_id: null })
+const expandedAccounts = ref(new Set())
 let pollTimer = null
 
 const filteredAccounts = computed(() => accounts.value.filter(item => {
@@ -341,6 +347,17 @@ function daysUntil(value) {
   if (!value) return null
   return Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 86400000))
 }
+
+function isExpanded(id) {
+  return expandedAccounts.value.has(id)
+}
+
+function toggleAccountDetails(id) {
+  const next = new Set(expandedAccounts.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedAccounts.value = next
+}
 </script>
 
 <style lang="scss" scoped>
@@ -351,6 +368,7 @@ function daysUntil(value) {
   grid-template-columns: 430px minmax(0, 1fr);
   gap: 24px;
   margin-top: 24px;
+  align-items: start;
 }
 
 .type-switch {
@@ -428,8 +446,54 @@ function daysUntil(value) {
   justify-content: center;
 }
 
+.collector-list {
+  display: grid;
+  gap: 14px;
+  min-height: 160px;
+}
+
+.collector-card {
+  border-radius: 24px;
+  background: $v2-card-soft;
+  padding: 18px 20px;
+}
+
+.collector-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.collector-summary {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+
+  h3 {
+    margin: 0;
+    color: $v2-ink;
+    font-size: 18px;
+    font-weight: 950;
+    overflow-wrap: anywhere;
+  }
+}
+
+.pill-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.expand-card-button {
+  flex-shrink: 0;
+}
+
 .collector-expand {
-  padding: 18px clamp(14px, 4vw, 42px);
+  margin-top: 16px;
+  border-radius: 20px;
+  background: rgba(#fff, 0.45);
+  padding: 16px;
   display: grid;
   gap: 14px;
 }

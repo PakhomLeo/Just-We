@@ -87,6 +87,7 @@
           <div class="record-meta">
             <V2StatusPill :label="record.include_exported ? '包含已导出' : '跳过已导出'" :tone="record.include_exported ? 'warning' : 'success'" />
             <el-button size="small" type="primary" :disabled="record.status !== 'completed'" @click="download(record)">下载 JSON</el-button>
+            <el-button size="small" type="danger" plain :loading="deleting[record.id]" @click="removeRecord(record)">删除</el-button>
           </div>
         </article>
       </div>
@@ -96,17 +97,18 @@
 
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import V2Empty from '@/components/v2/V2Empty.vue'
 import V2Page from '@/components/v2/V2Page.vue'
 import V2Section from '@/components/v2/V2Section.vue'
 import V2StatusPill from '@/components/v2/V2StatusPill.vue'
-import { createArticleExport, downloadArticleExport, getArticleExports } from '@/api/articleExports'
+import { createArticleExport, deleteArticleExport, downloadArticleExport, getArticleExports } from '@/api/articleExports'
 import { getMonitoredAccounts } from '@/api/monitoredAccounts'
 import { downloadBlob, formatDateTime } from './helpers'
 
 const loading = ref(false)
 const exporting = ref(false)
+const deleting = ref({})
 const records = ref([])
 const monitoredAccounts = ref([])
 const dateRange = ref([])
@@ -174,6 +176,18 @@ async function handleExport() {
 async function download(record) {
   const response = await downloadArticleExport(record.id)
   downloadBlob(response, record.file_name, 'application/json;charset=utf-8')
+}
+
+async function removeRecord(record) {
+  await ElMessageBox.confirm(`确定删除导出记录“${record.file_name}”吗？生成的 JSON 文件也会一并删除。`, '删除导出记录', { type: 'warning' })
+  deleting.value = { ...deleting.value, [record.id]: true }
+  try {
+    await deleteArticleExport(record.id)
+    ElMessage.success('导出记录已删除')
+    await loadRecords()
+  } finally {
+    deleting.value = { ...deleting.value, [record.id]: false }
+  }
 }
 
 function scopeLabel(value) {

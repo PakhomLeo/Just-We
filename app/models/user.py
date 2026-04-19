@@ -36,6 +36,12 @@ class User(UUIDIDMixin, Base):
         index=True,
         nullable=False,
     )
+    username: Mapped[str | None] = mapped_column(
+        String(length=80),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
     hashed_password: Mapped[str] = mapped_column(
         String(length=255),
         nullable=False,

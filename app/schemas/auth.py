@@ -19,6 +19,7 @@ class RegisterRequest(BaseModel):
     """Registration request schema."""
 
     email: EmailStr
+    username: str | None = Field(default=None, min_length=2, max_length=80)
     password: str = Field(..., min_length=8)
     role: UserRole = UserRole.VIEWER
 
@@ -43,6 +44,7 @@ class UserResponse(BaseModel):
 
     id: UUID
     email: str
+    username: str | None = None
     role: UserRole
     aggregate_feed_token: str
     is_active: bool
@@ -56,6 +58,7 @@ class UserUpdate(BaseModel):
     """User update schema."""
 
     email: EmailStr | None = None
+    username: str | None = Field(default=None, min_length=2, max_length=80)
     password: str | None = Field(default=None, min_length=8)
     role: UserRole | None = None
     is_active: bool | None = None

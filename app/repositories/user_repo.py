@@ -22,6 +22,13 @@ class UserRepository(BaseRepository):
         )
         return result.scalar_one_or_none()
 
+    async def get_by_username(self, username: str) -> User | None:
+        """Get user by username."""
+        result = await self.db.execute(
+            Select(User).where(User.username == username)
+        )
+        return result.scalar_one_or_none()
+
     async def get_by_id_uuid(self, id: UUID) -> User | None:
         """Get user by UUID."""
         result = await self.db.execute(

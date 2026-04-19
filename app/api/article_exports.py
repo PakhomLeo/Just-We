@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
@@ -73,3 +73,16 @@ async def download_article_export(
         media_type="application/json; charset=utf-8",
         filename=record.file_name,
     )
+
+
+@router.delete("/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_article_export(
+    record_id: int,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    service = ArticleExportService(db)
+    record = await service.get_record(record_id, current_user)
+    if record is None:
+        raise HTTPException(status_code=404, detail="导出记录不存在")
+    await service.delete_record(record)

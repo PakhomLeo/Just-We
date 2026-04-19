@@ -2,9 +2,9 @@
   <div class="v2-login">
     <div class="login-stage">
       <div class="login-copy">
-        <h1>公众号监测<br>与 AI 分析控制台</h1>
-        <strong>monitor what matters</strong>
-        <p>账号绑定、公众号解析、文章下载、三段式 AI 判断和 Feed 输出，在同一个后台闭环完成。</p>
+        <h1>Just-We</h1>
+        <strong>微信公众号监测与文章采集后台</strong>
+        <p>用于管理抓取账号、公众号监测、文章入库、AI 分析和 Feed/JSON 导出。</p>
       </div>
 
       <form class="login-card" @submit.prevent="handleSubmit">
@@ -35,6 +35,14 @@
             placeholder="admin@example.com"
           >
         </label>
+        <label v-if="isRegisterMode">
+          <span>用户名</span>
+          <input
+            v-model.trim="form.username"
+            autocomplete="username"
+            placeholder="用于登录和显示的名称"
+          >
+        </label>
         <label>
           <span>密码</span>
           <input
@@ -44,7 +52,7 @@
             type="password"
           >
         </label>
-        <button class="submit-button" :disabled="loading || !form.email || !form.password" type="submit">
+        <button class="submit-button" :disabled="loading || !form.email || !form.password || (isRegisterMode && !form.username)" type="submit">
           {{ submitText }}
         </button>
         <p v-if="errorMessage" class="login-error">{{ errorMessage }}</p>
@@ -72,6 +80,7 @@ const isRegisterMode = ref(false)
 const loading = ref(false)
 const form = reactive({
   email: '',
+  username: '',
   password: ''
 })
 
@@ -93,6 +102,7 @@ async function handleSubmit() {
   try {
     const payload = {
       email: form.email,
+      username: form.username || undefined,
       password: form.password
     }
     if (isRegisterMode.value) {

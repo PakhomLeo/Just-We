@@ -115,6 +115,7 @@ async def update_default_admin(payload: DefaultAdminUpdatePayload, db: DbSession
     if user is None:
         user = await auth.user_repo.create(
             email=str(payload.email),
+            username=settings.default_admin_alias,
             hashed_password=auth.hash_password(payload.password or settings.default_admin_password),
             role=UserRole.ADMIN,
             is_active=True,
@@ -122,6 +123,7 @@ async def update_default_admin(payload: DefaultAdminUpdatePayload, db: DbSession
         )
     else:
         user.email = str(payload.email)
+        user.username = user.username or settings.default_admin_alias
         user.role = UserRole.ADMIN
         user.is_active = True
         user.is_superuser = True

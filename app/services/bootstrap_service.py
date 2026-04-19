@@ -33,6 +33,7 @@ class BootstrapService:
         hashed_password = self.auth_service.hash_password(settings.default_admin_password)
         return await self.auth_service.user_repo.create(
             email=settings.default_admin_email,
+            username=settings.default_admin_alias,
             hashed_password=hashed_password,
             role=UserRole.ADMIN,
             is_active=True,

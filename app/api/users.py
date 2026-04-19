@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, status, Query
 
+from app.core.config import get_settings
 from app.core.dependencies import DbSession, AdminUser
 from app.schemas.auth import UserResponse, RegisterRequest, UserUpdate
 from app.services.auth_service import AuthService
@@ -9,6 +10,7 @@ from app.models.user import UserRole
 
 
 router = APIRouter(prefix="/users", tags=["Users"])
+settings = get_settings()
 
 
 @router.get("/", response_model=list[UserResponse])
@@ -41,12 +43,25 @@ async def create_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
         )
+    if request.username:
+        if request.username == settings.default_admin_alias:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username is reserved",
+            )
+        existing_username = await auth_service.user_repo.get_by_username(request.username)
+        if existing_username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already registered",
+            )
 
     # Create user
     user = await auth_service.create_user(
         email=request.email,
         password=request.password,
         role=request.role.value,
+        username=request.username,
     )
 
     return user
@@ -76,6 +91,16 @@ async def update_user(
     # Update user fields if provided
     if request.email is not None:
         user.email = request.email
+    if request.username is not None:
+        if request.username:
+            if request.username == settings.default_admin_alias and user.username != settings.default_admin_alias:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is reserved")
+            existing_username = await user_repo.get_by_username(request.username)
+            if existing_username and existing_username.id != user.id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already registered")
+            user.username = request.username
+        else:
+            user.username = None
     if request.password:
         user.hashed_password = AuthService(db).hash_password(request.password)
     if request.role is not None:

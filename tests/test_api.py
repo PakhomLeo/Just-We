@@ -489,6 +489,97 @@ class TestMonitoredAndCollectorIsolationAPI:
 
         assert data_url == f"data:image/png;base64,{base64.b64encode(image_bytes).decode('ascii')}"
 
+    @pytest.mark.asyncio
+    async def test_mp_admin_generate_uses_startlogin_session_flow(self, monkeypatch):
+        from app.services.qr_providers import MpAdminQRProvider
+
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/cgi-bin/bizlogin"):
+                assert request.url.params.get("action") == "startlogin"
+                assert b"sessionid=" in request.content
+                return httpx.Response(
+                    200,
+                    headers={
+                        "content-type": "application/json",
+                        "set-cookie": "uuid=session-cookie; Domain=.mp.weixin.qq.com; Path=/",
+                    },
+                    json={"base_resp": {"ret": 0}},
+                )
+            if request.url.path.endswith("/cgi-bin/scanloginqrcode"):
+                assert request.url.params.get("action") == "getqrcode"
+                assert "uuid" not in request.url.params
+                return httpx.Response(200, headers={"content-type": "image/png"}, content=b"fake-png")
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+        original_async_client = httpx.AsyncClient
+
+        def client_factory(*args, **kwargs):
+            kwargs["transport"] = transport
+            return original_async_client(*args, **kwargs)
+
+        monkeypatch.setattr("app.services.qr_providers.httpx.AsyncClient", client_factory)
+
+        result = await MpAdminQRProvider().generate()
+
+        assert result.qr_url.startswith("data:image/png;base64,")
+        assert result.provider_ticket == result.state["sessionid"]
+        assert [request.url.path for request in requests] == [
+            "/cgi-bin/bizlogin",
+            "/cgi-bin/scanloginqrcode",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_mp_admin_poll_finalizes_without_fingerprint(self):
+        from app.services.qr_providers import MpAdminQRProvider
+
+        provider = MpAdminQRProvider()
+        provider.discover_profile_from_credentials = AsyncMock(
+            return_value={
+                "fakeid": "fakeid_123",
+                "nickname": "测试公众号",
+                "cookies": {"wxuin": "uin123", "session": "abc"},
+            }
+        )
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path.endswith("/cgi-bin/scanloginqrcode"):
+                assert request.url.params.get("action") == "ask"
+                assert "fingerprint" not in request.url.params
+                return httpx.Response(200, json={"base_resp": {"ret": 0}, "status": 1})
+            if request.url.path.endswith("/cgi-bin/bizlogin"):
+                body = request.content.decode()
+                assert request.url.params.get("action") == "login"
+                assert "fingerprint" not in body
+                return httpx.Response(
+                    200,
+                    headers={"set-cookie": "wxuin=uin123; Domain=.mp.weixin.qq.com; Path=/"},
+                    json={"base_resp": {"ret": 0}, "redirect_url": "/cgi-bin/home?t=home/index&token=abc123&lang=zh_CN"},
+                )
+            return httpx.Response(404)
+
+        transport = httpx.MockTransport(handler)
+        provider._client_from_state = lambda state: httpx.AsyncClient(
+            transport=transport,
+            headers=provider._build_headers(),
+            follow_redirects=True,
+        )
+
+        result = await provider.poll({"provider_ticket": "sid", "sessionid": "sid", "cookies": {"uuid": "u"}})
+
+        assert result.status == "confirmed"
+        assert result.account_payload["credentials"]["token"] == "abc123"
+        assert result.account_payload["credentials"]["fakeid"] == "fakeid_123"
+        assert [request.url.path for request in requests] == [
+            "/cgi-bin/scanloginqrcode",
+            "/cgi-bin/bizlogin",
+        ]
+
     def test_weread_scan_url_is_encoded_as_displayable_qr_data_url(self):
         from app.services.qr_providers import build_qr_svg_data_url
 

@@ -199,7 +199,7 @@ class MpAdminQRProvider(BaseQRProvider):
         except Exception:
             ret_value = ret
         if ret_value not in {None, 0}:
-            errmsg = base_resp.get("errmsg") or payload.get("errmsg") or f"ret={ret}"
+            errmsg = base_resp.get("errmsg") or base_resp.get("err_msg") or payload.get("errmsg") or f"ret={ret}"
             return f"公众号后台未完成授权或拒绝登录：{errmsg}"
         if not token:
             return "公众号后台登录未返回 token，请确认扫码账号有公众号后台权限并完成授权"
@@ -313,51 +313,51 @@ class MpAdminQRProvider(BaseQRProvider):
     async def generate(self) -> ProviderGenerateResult:
         async with httpx.AsyncClient(timeout=30, headers=self._build_headers(), follow_redirects=True, proxy=self.proxy_url) as client:
             try:
-                response = await client.get(f"{self.base_url}/")
-                response.raise_for_status()
-            except Exception as exc:
-                raise QRProviderException(self.provider_name, str(exc)) from exc
-
-            qr_url, uuid_value = self._extract_qr_info(response.text)
-            if not uuid_value:
-                fingerprint = secrets.token_hex(16)
+                session_id = f"{int(datetime.now(timezone.utc).timestamp() * 1000)}{secrets.randbelow(1000):03d}"
                 start_response = await client.post(
                     f"{self.base_url}/cgi-bin/bizlogin",
                     params={"action": "startlogin"},
                     data={
-                        "fingerprint": fingerprint,
+                        "userlang": "zh_CN",
+                        "redirect_url": "",
+                        "login_type": 3,
+                        "sessionid": session_id,
                         "token": "",
                         "lang": "zh_CN",
                         "f": "json",
-                        "ajax": "1",
-                        "redirect_url": "/cgi-bin/home",
-                        "login_type": "3",
+                        "ajax": 1,
                     },
                 )
                 start_response.raise_for_status()
-                uuid_value = start_response.cookies.get("uuid") or client.cookies.get("uuid")
-            else:
-                fingerprint = client.cookies.get("fingerprint") or secrets.token_hex(16)
+                if start_response.headers.get("content-type", "").startswith("application/json"):
+                    payload = start_response.json()
+                    base_resp = payload.get("base_resp") or {}
+                    ret = base_resp.get("ret")
+                    try:
+                        ret_value = int(ret) if ret is not None else None
+                    except Exception:
+                        ret_value = ret
+                    if ret_value not in {None, 0}:
+                        message = base_resp.get("errmsg") or base_resp.get("err_msg") or "startlogin failed"
+                        raise QRProviderException(self.provider_name, str(message))
+            except QRProviderException:
+                raise
+            except Exception as exc:
+                raise QRProviderException(self.provider_name, str(exc)) from exc
 
-            if not uuid_value:
-                raise QRProviderException(self.provider_name, "Unable to obtain mp_admin login UUID")
-
-            qr_url = qr_url or (
-                f"{self.base_url}/cgi-bin/scanloginqrcode?action=getqrcode&uuid={uuid_value}"
-            )
+            qr_url = f"{self.base_url}/cgi-bin/scanloginqrcode?action=getqrcode&random={int(datetime.now(timezone.utc).timestamp() * 1000)}"
             qr_display_url = await self._fetch_qr_data_url(client, qr_url)
 
             state = {
-                "provider_ticket": uuid_value,
-                "uuid": uuid_value,
-                "fingerprint": fingerprint,
+                "provider_ticket": session_id,
+                "sessionid": session_id,
                 "cookies": dict(client.cookies.items()),
                 "proxy_url": self.proxy_url,
             }
             expire_at = datetime.now(timezone.utc) + timedelta(seconds=settings.qr_code_expire_seconds)
             return ProviderGenerateResult(
                 qr_url=qr_display_url,
-                provider_ticket=uuid_value,
+                provider_ticket=session_id,
                 expire_at=expire_at,
                 state=state,
             )
@@ -369,7 +369,7 @@ class MpAdminQRProvider(BaseQRProvider):
                     f"{self.base_url}/cgi-bin/scanloginqrcode",
                     params={
                         "action": "ask",
-                        "fingerprint": state["fingerprint"],
+                        "token": "",
                         "lang": "zh_CN",
                         "f": "json",
                         "ajax": "1",
@@ -385,9 +385,9 @@ class MpAdminQRProvider(BaseQRProvider):
                 status_code = int(payload.get("status"))
             except Exception:
                 status_code = payload.get("status")
-            if status_code in {2, 4, "scan"}:
+            if status_code in {4, 6, "scan"}:
                 return ProviderPollResult(status="scanned", state=updated_state, message="已扫码，请确认登录")
-            if status_code in {1, 3, "confirm", "confirmed"}:
+            if status_code in {1, "confirm", "confirmed"}:
                 try:
                     account_payload = await self._finalize_login(updated_state)
                 except QRProviderException as exc:
@@ -402,8 +402,10 @@ class MpAdminQRProvider(BaseQRProvider):
                     account_payload=account_payload,
                     message="登录成功",
                 )
-            if status_code in {5, -1}:
+            if status_code in {2, 5, -1}:
                 return ProviderPollResult(status="expired", state=updated_state, message="二维码已过期")
+            if status_code in {3, "failed", "fail"}:
+                return ProviderPollResult(status="failed", state=updated_state, message="扫码失败，请重新生成二维码")
             return ProviderPollResult(status="waiting", state=updated_state, message="等待扫码")
 
     async def _finalize_login(self, state: dict[str, Any]) -> dict[str, Any]:
@@ -417,12 +419,11 @@ class MpAdminQRProvider(BaseQRProvider):
                     "cookie_forbidden": "0",
                     "cookie_cleaned": "0",
                     "plugin_used": "0",
-                    "login_type": "3",
-                    "fingerprint": state["fingerprint"],
+                    "login_type": 3,
                     "token": "",
                     "lang": "zh_CN",
                     "f": "json",
-                    "ajax": "1",
+                    "ajax": 1,
                 },
             )
             response.raise_for_status()
@@ -466,7 +467,7 @@ class MpAdminQRProvider(BaseQRProvider):
                 "metadata_json": {
                     "provider": self.provider_name,
                     "provider_ticket": state["provider_ticket"],
-                    "fingerprint": state["fingerprint"],
+                    "sessionid": state.get("sessionid"),
                     "fakeid": fakeid,
                     "fakeid_missing": not bool(fakeid),
                     "nickname": nickname,

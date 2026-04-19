@@ -556,6 +556,42 @@ class WeReadFetcher(BaseChannelFetcher):
         )
         return str(value) if value else None
 
+    def _platform_error_message(self, response) -> str:
+        try:
+            payload = response.json()
+        except Exception:
+            return getattr(response, "text", "") or ""
+        if isinstance(payload, dict):
+            for key in ("message", "error", "errMsg", "err_msg"):
+                value = payload.get(key)
+                if value:
+                    return str(value)
+            data = payload.get("data")
+            if isinstance(data, dict):
+                for key in ("message", "error", "errMsg", "err_msg"):
+                    value = data.get(key)
+                    if value:
+                        return str(value)
+        return str(payload)
+
+    def _raise_for_platform_response(self, response, monitored_account_id: int) -> None:
+        message = self._platform_error_message(response)
+        lowered = message.lower()
+        if response.status_code in {401, 403} or "wereaderror401" in lowered:
+            raise FetchFailedException(
+                monitored_account_id,
+                "WeRead platform token is invalid",
+                category=FETCH_CATEGORY_CREDENTIALS,
+                retryable=False,
+            )
+        if response.status_code == 429 or "wereaderror429" in lowered:
+            raise FetchFailedException(
+                monitored_account_id,
+                "WeRead platform rate limited",
+                category=FETCH_CATEGORY_RISK,
+                retryable=True,
+            )
+
     async def _fetch_platform_articles(
         self,
         monitored_account: MonitoredAccount,
@@ -581,13 +617,7 @@ class WeReadFetcher(BaseChannelFetcher):
                     json={"url": monitored_account.source_url},
                     headers=headers,
                 )
-                if resolve_response.status_code in {401, 403}:
-                    raise FetchFailedException(
-                        monitored_account.id,
-                        "WeRead platform token is invalid",
-                        category=FETCH_CATEGORY_CREDENTIALS,
-                        retryable=False,
-                    )
+                self._raise_for_platform_response(resolve_response, monitored_account.id)
                 if resolve_response.status_code >= 400:
                     return []
                 mp_id = self._extract_platform_mp_id(resolve_response.json())
@@ -601,20 +631,7 @@ class WeReadFetcher(BaseChannelFetcher):
                     params={"page": int((monitored_account.strategy_config or {}).get("weread_page", 1))},
                     headers=headers,
                 )
-                if response.status_code in {401, 403}:
-                    raise FetchFailedException(
-                        monitored_account.id,
-                        "WeRead platform token is invalid",
-                        category=FETCH_CATEGORY_CREDENTIALS,
-                        retryable=False,
-                    )
-                if response.status_code == 429:
-                    raise FetchFailedException(
-                        monitored_account.id,
-                        "WeRead platform rate limited",
-                        category=FETCH_CATEGORY_RISK,
-                        retryable=True,
-                    )
+                self._raise_for_platform_response(response, monitored_account.id)
                 if response.status_code >= 400:
                     return []
                 updates = self._parse_platform_articles(response.json(), monitored_account)

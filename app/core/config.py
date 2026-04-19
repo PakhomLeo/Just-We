@@ -101,6 +101,14 @@ class Settings(BaseSettings):
         default=30,
         description="Timeout for WeRead platform login API calls",
     )
+    weread_platform_expire_failure_threshold: int = Field(
+        default=2,
+        description="Consecutive WeRead platform credential failures before marking an account expired",
+    )
+    weread_platform_credential_cooldown_minutes: int = Field(
+        default=60,
+        description="Cooldown after a suspected WeRead platform credential failure",
+    )
     media_root: str = Field(
         default="media",
         description="Local media root directory",

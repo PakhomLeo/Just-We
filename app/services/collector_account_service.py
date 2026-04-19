@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.collector_account import (
     CollectorAccount,
     CollectorAccountStatus,
@@ -12,6 +13,9 @@ from app.models.collector_account import (
     RiskStatus,
 )
 from app.repositories.collector_account_repo import CollectorAccountRepository
+
+
+settings = get_settings()
 
 
 class CollectorAccountService:
@@ -142,12 +146,16 @@ class CollectorAccountService:
             "last_health_check": datetime.now(timezone.utc),
         }
         if health_status == CollectorHealthStatus.NORMAL:
+            metadata = dict(account.metadata_json or {})
+            metadata.pop("weread_platform_credential_failures", None)
+            metadata.pop("weread_platform_last_credential_failure_at", None)
             update["status"] = CollectorAccountStatus.ACTIVE
             update["risk_status"] = RiskStatus.NORMAL
             update["risk_reason"] = None
             update["cool_until"] = None
             update["last_error_category"] = None
             update["last_success_at"] = datetime.now(timezone.utc)
+            update["metadata_json"] = metadata
         elif health_status == CollectorHealthStatus.RESTRICTED:
             update["status"] = CollectorAccountStatus.ERROR
             update["risk_status"] = RiskStatus.BLOCKED
@@ -194,6 +202,26 @@ class CollectorAccountService:
             "last_error_category": category,
         }
         if category == "credentials_invalid":
+            metadata = dict(account.metadata_json or {})
+            is_weread_platform = (
+                account.account_type == CollectorAccountType.WEREAD
+                and metadata.get("provider") == "weread_platform"
+            )
+            if is_weread_platform:
+                failures = int(metadata.get("weread_platform_credential_failures") or 0) + 1
+                metadata["weread_platform_credential_failures"] = failures
+                metadata["weread_platform_last_credential_failure_at"] = now.isoformat()
+                update["metadata_json"] = metadata
+                threshold = max(int(settings.weread_platform_expire_failure_threshold), 1)
+                if failures < threshold:
+                    update["status"] = CollectorAccountStatus.ACTIVE
+                    update["health_status"] = CollectorHealthStatus.NORMAL
+                    update["risk_status"] = RiskStatus.COOLING
+                    update["cool_until"] = now + timedelta(
+                        minutes=max(int(settings.weread_platform_credential_cooldown_minutes), 1)
+                    )
+                    update["risk_reason"] = f"疑似 WeRead 平台登录异常，已冷却等待复验: {reason}"
+                    return await self.repo.update(account, **update)
             update["status"] = CollectorAccountStatus.EXPIRED
             update["health_status"] = CollectorHealthStatus.EXPIRED
             update["risk_status"] = RiskStatus.NORMAL
@@ -214,6 +242,9 @@ class CollectorAccountService:
         return await self.repo.update(account, **update)
 
     async def mark_success(self, account: CollectorAccount) -> CollectorAccount:
+        metadata = dict(account.metadata_json or {})
+        metadata.pop("weread_platform_credential_failures", None)
+        metadata.pop("weread_platform_last_credential_failure_at", None)
         return await self.repo.update(
             account,
             last_success_at=datetime.now(timezone.utc),
@@ -223,6 +254,7 @@ class CollectorAccountService:
             last_error_category=None,
             status=CollectorAccountStatus.ACTIVE,
             health_status=CollectorHealthStatus.NORMAL,
+            metadata_json=metadata,
         )
 
     async def update_discovered_profile(

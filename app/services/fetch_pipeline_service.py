@@ -1,6 +1,7 @@
 """Full fetch pipeline orchestrator for monitored accounts."""
 
 import hashlib
+import random
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,13 +110,14 @@ class FetchPipelineService:
             accounts = await self.collector_service.repo.get_by_owner_and_type(monitored_account.owner_user_id, fetch_mode)
             healthy = [a for a in accounts if self.collector_service.is_available_for_fetch(a)]
             if healthy:
+                collector = random.choice(healthy)
                 if monitored_account.primary_fetch_mode != fetch_mode or monitored_account.fallback_fetch_mode is not None:
                     await self.monitored_repo.update(
                         monitored_account,
                         primary_fetch_mode=fetch_mode,
                         fallback_fetch_mode=None,
                     )
-                return healthy[0]
+                return collector
         if not is_weread_platform_account and (
             monitored_account.primary_fetch_mode != policy_mode or monitored_account.fallback_fetch_mode is not None
         ):

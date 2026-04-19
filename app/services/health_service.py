@@ -2,11 +2,9 @@
 
 from datetime import datetime, timedelta, timezone
 import httpx
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.collector_account import CollectorAccount, CollectorAccountType, CollectorHealthStatus
-from app.models.monitored_account import MonitoredAccount
 
 
 class HealthCheckService:
@@ -113,35 +111,13 @@ class HealthCheckService:
         cookies = account.credentials.get("cookies") or {}
         token = account.credentials.get("token")
 
-        # Prefer the platform token probe when available.
+        # WeRead-compatible platform tokens are validated by the platform itself
+        # during real list fetches. Extra article-list probes consume account/IP
+        # quota and can push the account into platform risk control.
         if token and account.metadata_json.get("provider") == "weread_platform":
             platform_url = (account.metadata_json.get("platform_url") or "").rstrip("/")
             if platform_url:
-                article_probe = await self._probe_weread_platform_articles(account, platform_url, token, headers, db)
-                if article_probe is not None:
-                    return article_probe
-                saw_upstream_response = False
-                probe_candidates = [
-                    "/api/v2/feeds",
-                    "/api/v2/feeds/all",
-                    "/api/v2/users/me",
-                ]
-                auth_headers = {**headers, "Authorization": f"Bearer {token}"}
-                try:
-                    async with httpx.AsyncClient(timeout=15.0) as client:
-                        for path in probe_candidates:
-                            response = await client.get(f"{platform_url}{path}", headers=auth_headers)
-                            saw_upstream_response = True
-                            if response.status_code == 200:
-                                return CollectorHealthStatus.NORMAL, "正常"
-                            if response.status_code in {401, 403}:
-                                return CollectorHealthStatus.EXPIRED, "平台令牌失效"
-                except httpx.TimeoutException:
-                    return CollectorHealthStatus.RESTRICTED, "平台健康检查超时"
-                except httpx.RequestError as exc:
-                    return CollectorHealthStatus.INVALID, f"平台健康检查失败: {exc}"
-                if saw_upstream_response:
-                    return CollectorHealthStatus.RESTRICTED, "平台健康检查接口不可用"
+                return CollectorHealthStatus.NORMAL, "平台令牌存在，等待抓取校验"
 
         # Fall back to an authenticated-ish WeRead probe when cookies are present.
         if cookies:
@@ -170,52 +146,6 @@ class HealthCheckService:
         if token:
             return CollectorHealthStatus.NORMAL, "令牌存在，等待平台校验"
         return CollectorHealthStatus.INVALID, "缺少可用凭证"
-
-    async def _probe_weread_platform_articles(
-        self,
-        account: CollectorAccount,
-        platform_url: str,
-        token: str,
-        headers: dict[str, str],
-        db: AsyncSession | None,
-    ) -> tuple[CollectorHealthStatus, str] | None:
-        if db is None:
-            return None
-        result = await db.execute(select(MonitoredAccount).where(MonitoredAccount.owner_user_id == account.owner_user_id))
-        monitored_accounts = result.scalars().all()
-        mp_id = None
-        for monitored in monitored_accounts:
-            metadata = monitored.metadata_json or {}
-            candidate = metadata.get("weread_platform_mp_id")
-            if candidate:
-                mp_id = candidate
-                break
-        if not mp_id:
-            return None
-        auth_headers = {**headers, "Authorization": f"Bearer {token}"}
-        xid = (account.credentials or {}).get("vid") or account.external_id
-        if xid:
-            auth_headers["xid"] = str(xid)
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(
-                    f"{platform_url}/api/v2/platform/mps/{mp_id}/articles",
-                    params={"page": 1},
-                    headers=auth_headers,
-                )
-        except httpx.TimeoutException:
-            return CollectorHealthStatus.RESTRICTED, "平台健康检查超时"
-        except httpx.RequestError as exc:
-            return CollectorHealthStatus.INVALID, f"平台健康检查失败: {exc}"
-        if response.status_code == 200:
-            return CollectorHealthStatus.NORMAL, "正常"
-        if response.status_code in {401, 403}:
-            return CollectorHealthStatus.EXPIRED, "平台令牌失效"
-        if response.status_code == 429:
-            return CollectorHealthStatus.RESTRICTED, "平台请求过于频繁"
-        if response.status_code >= 500:
-            return CollectorHealthStatus.RESTRICTED, f"平台上游异常 HTTP {response.status_code}"
-        return CollectorHealthStatus.RESTRICTED, f"平台文章列表探针 HTTP {response.status_code}"
 
     def calculate_expire_at(
         self,

@@ -14,6 +14,7 @@ from app.services.proxy_service import ProxyService
 from app.services.article_service import ArticleService
 from app.services.parser_service import ParserService, ParsedArticle
 from app.services.ai_service import AIService
+from app.services.collector_account_service import CollectorAccountService
 from app.services.fetch_pipeline_service import FetchPipelineService
 from app.services.fetcher_service import DetailDocumentResponse, FetcherService
 from app.services.monitoring_source_service import MonitoringSourceService
@@ -1202,6 +1203,32 @@ class TestFetcherService:
         assert updates[0].title == "A"
         monkey_sleep.assert_awaited_once_with(0.5)
 
+    def test_weread_platform_error_body_maps_rate_limit_and_credentials(self, test_db: AsyncSession):
+        """Compatible platforms may encode WeRead errors in the response body."""
+        fetcher = FetcherService(test_db)
+
+        class DummyResponse:
+            def __init__(self, status_code: int, message: str):
+                self.status_code = status_code
+                self._message = message
+
+            def json(self):
+                return {"message": self._message}
+
+        with pytest.raises(FetchFailedException) as credential_exc:
+            fetcher.weread_fetcher._raise_for_platform_response(
+                DummyResponse(400, "WeReadError401: token expired"),
+                monitored_account_id=1,
+            )
+        assert credential_exc.value.details["category"] == "credentials_invalid"
+
+        with pytest.raises(FetchFailedException) as risk_exc:
+            fetcher.weread_fetcher._raise_for_platform_response(
+                DummyResponse(400, "WeReadError429: too many requests"),
+                monitored_account_id=1,
+            )
+        assert risk_exc.value.details["category"] == "risk_control"
+
 
 class TestFetchPipelineService:
     """Targeted tests for monitored fetch pipeline behavior."""
@@ -1605,7 +1632,7 @@ class TestCollectorHealthService:
         assert expires_at == account.expires_at
 
     @pytest.mark.asyncio
-    async def test_weread_platform_404_probes_are_not_marked_normal(self):
+    async def test_weread_platform_health_check_does_not_probe_platform_articles(self):
         service = HealthCheckService()
         account = CollectorAccount(
             owner_user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
@@ -1618,27 +1645,15 @@ class TestCollectorHealthService:
             metadata_json={"provider": "weread_platform", "platform_url": "https://platform.example.com"},
         )
 
-        class FakeResponse:
-            status_code = 404
-
-        class FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return None
-
-            async def get(self, *args, **kwargs):
-                return FakeResponse()
-
-        with patch("app.services.health_service.httpx.AsyncClient", return_value=FakeClient()):
+        with patch("app.services.health_service.httpx.AsyncClient", new=MagicMock()) as client_factory:
             status, reason = await service._check_weread_collector(account)
 
-        assert status == CollectorHealthStatus.RESTRICTED
-        assert reason == "平台健康检查接口不可用"
+        assert status == CollectorHealthStatus.NORMAL
+        assert reason == "平台令牌存在，等待抓取校验"
+        client_factory.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_weread_platform_article_probe_reports_expired_token(self, test_db: AsyncSession, mock_user: User):
+    async def test_weread_platform_health_check_avoids_real_list_probe(self, test_db: AsyncSession, mock_user: User):
         service = HealthCheckService()
         account = CollectorAccount(
             owner_user_id=mock_user.id,
@@ -1666,24 +1681,52 @@ class TestCollectorHealthService:
         test_db.add_all([account, monitored])
         await test_db.commit()
 
-        class FakeResponse:
-            status_code = 401
-
-        class FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return None
-
-            async def get(self, *args, **kwargs):
-                return FakeResponse()
-
-        with patch("app.services.health_service.httpx.AsyncClient", return_value=FakeClient()):
+        with patch("app.services.health_service.httpx.AsyncClient", new=MagicMock()) as client_factory:
             status, reason, _ = await service.check_collector_account_health(account, test_db)
 
-        assert status == CollectorHealthStatus.EXPIRED
-        assert reason == "平台令牌失效"
+        assert status == CollectorHealthStatus.NORMAL
+        assert reason == "平台令牌存在，等待抓取校验"
+        client_factory.assert_not_called()
+
+
+class TestCollectorAccountService:
+    """Collector account status transitions."""
+
+    @pytest.mark.asyncio
+    async def test_weread_platform_credential_failure_cools_before_expiring(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        service = CollectorAccountService(test_db)
+        account = CollectorAccount(
+            owner_user_id=mock_user.id,
+            account_type=CollectorAccountType.WEREAD,
+            display_name="Weread",
+            credentials={"token": "token123", "vid": "vid123"},
+            external_id="vid123",
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={"provider": "weread_platform", "platform_url": "https://platform.example.com"},
+        )
+        test_db.add(account)
+        await test_db.commit()
+        await test_db.refresh(account)
+
+        first = await service.mark_fetch_failure(account, "credentials_invalid", "WeRead platform token is invalid")
+
+        assert first.status == CollectorAccountStatus.ACTIVE
+        assert first.health_status == CollectorHealthStatus.NORMAL
+        assert first.risk_status == RiskStatus.COOLING
+        assert first.cool_until is not None
+        assert first.metadata_json["weread_platform_credential_failures"] == 1
+
+        second = await service.mark_fetch_failure(first, "credentials_invalid", "WeRead platform token is invalid")
+
+        assert second.status == CollectorAccountStatus.EXPIRED
+        assert second.health_status == CollectorHealthStatus.EXPIRED
+        assert second.metadata_json["weread_platform_credential_failures"] == 2
 
 
 class TestNotificationService:

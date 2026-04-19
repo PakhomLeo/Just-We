@@ -53,10 +53,19 @@ deployments, disable default bootstrap after provisioning an administrator.
 | `QR_CODE_EXPIRE_SECONDS` | `180` | QR login expiration window. |
 | `WEREAD_PLATFORM_URL` | `https://weread.111965.xyz` | WeRead-compatible platform endpoint. Empty disables that integration path. |
 | `WEREAD_PLATFORM_TIMEOUT_SECONDS` | `30` | Timeout for WeRead platform API requests. |
+| `WEREAD_PLATFORM_EXPIRE_FAILURE_THRESHOLD` | `2` | Consecutive platform credential failures before a WeRead account is marked expired. |
+| `WEREAD_PLATFORM_CREDENTIAL_COOLDOWN_MINUTES` | `60` | Cooldown after the first suspected platform credential failure. |
 
 External WeChat, WeRead, AI, and proxy services are optional for local
 usability testing. Without credentials, the UI should still save configuration,
 show clear states, and return understandable failures.
+
+WeRead-compatible platforms have account and IP-level request limits. Just-We
+does not run article-list probes during periodic health checks; it validates the
+token during real list fetches, cools down after a first suspected credential
+failure, and only marks the account expired after repeated failures. Keep the
+QR login option that auto-exits after 24 hours unchecked, and spread monitored
+accounts across multiple WeRead accounts when you need higher fetch volume.
 
 ## Weight and Scheduling
 

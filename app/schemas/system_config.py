@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class ArticleContentIntervalPolicyPayload(BaseModel):
@@ -102,3 +102,14 @@ class ProxyPolicyPayload(BaseModel):
     proxy_failure_cooldown_seconds: int = 120
     detail_rotation_strategy: str = "round_robin"
     list_sticky_ttl_seconds: int = 1800
+
+
+class DefaultAdminPayload(BaseModel):
+    email: EmailStr
+    alias: str = "admin"
+    password: str = ""
+
+
+class DefaultAdminUpdatePayload(BaseModel):
+    email: EmailStr
+    password: str | None = Field(default=None, min_length=8)

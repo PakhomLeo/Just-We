@@ -1,7 +1,7 @@
 <template>
   <div class="v2-app">
     <nav class="v2-pill-nav">
-      <button class="brand" @click="router.push('/dashboard')">✶ Just-We</button>
+      <button class="brand" @click="router.push('/dashboard')">Just-We</button>
       <div class="nav-links">
         <button
           v-for="item in visibleNavItems"

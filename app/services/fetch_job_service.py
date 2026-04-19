@@ -46,6 +46,13 @@ class FetchJobService:
     async def list_recent(self, limit: int = 50) -> list[FetchJob]:
         return await self.repo.get_recent(limit=limit)
 
+    async def get_visible(self, job_id: int, current_user) -> FetchJob | None:
+        include_all = current_user.role.value == "admin"
+        return await self.repo.get_by_id_for_owner(job_id, current_user.id, include_all=include_all)
+
+    async def delete_job(self, job: FetchJob) -> None:
+        await self.repo.delete(job)
+
     async def get_running_history_backfill(self, monitored_account_id: int) -> FetchJob | None:
         return await self.repo.get_running_for_monitored_account(
             monitored_account_id,

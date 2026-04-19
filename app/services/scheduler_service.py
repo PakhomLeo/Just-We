@@ -6,6 +6,7 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -170,6 +171,27 @@ class SchedulerService:
         self.scheduler.add_job(
             func,
             trigger=IntervalTrigger(hours=interval_hours, timezone="UTC"),
+            args=args or [],
+            id=job_id,
+            name=name or job_id,
+            replace_existing=True,
+        )
+        return job_id
+
+    def schedule_daily_job(
+        self,
+        job_id: str,
+        hour: int,
+        minute: int,
+        func: Callable,
+        args: list[Any] | None = None,
+        name: str | None = None,
+        timezone_name: str = "Asia/Shanghai",
+    ) -> str:
+        """Schedule or replace a recurring daily job at a local wall-clock time."""
+        self.scheduler.add_job(
+            func,
+            trigger=CronTrigger(hour=hour, minute=minute, timezone=timezone_name),
             args=args or [],
             id=job_id,
             name=name or job_id,

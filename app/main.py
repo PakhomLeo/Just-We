@@ -108,11 +108,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         accounts = await MonitoredAccountRepository(db).get_active_accounts()
         scheduler_service = SchedulerService(db)
         await scheduler_service.load_account_schedules(accounts, run_single_account)
-        scheduler_service.schedule_interval_job(
+        scheduler_service.schedule_daily_job(
             job_id="collector_health_checks",
-            interval_hours=settings.collector_health_check_interval_hours,
+            hour=settings.collector_health_check_hour,
+            minute=settings.collector_health_check_minute,
             func=run_all_collector_health_checks,
-            name="Collector Health Checks",
+            name="Collector Health Checks (daily night)",
         )
 
     yield

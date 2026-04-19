@@ -90,8 +90,10 @@ class AuthService:
         """Authenticate a user by email and password."""
         lookup_email = email
         if email == settings.default_admin_alias:
-            lookup_email = settings.default_admin_email
-        user = await self.user_repo.get_by_email(lookup_email)
+            default_admin = await self.user_repo.get_by_email(settings.default_admin_email)
+            user = default_admin or await self.user_repo.get_first_admin()
+        else:
+            user = await self.user_repo.get_by_email(lookup_email)
         if user is None:
             return None
         if not self.verify_password(password, user.hashed_password):

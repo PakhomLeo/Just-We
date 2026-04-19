@@ -56,5 +56,6 @@ class UserUpdate(BaseModel):
     """User update schema."""
 
     email: EmailStr | None = None
+    password: str | None = Field(default=None, min_length=8)
     role: UserRole | None = None
     is_active: bool | None = None

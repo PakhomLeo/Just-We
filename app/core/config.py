@@ -125,6 +125,14 @@ class Settings(BaseSettings):
         default=6,
         description="Interval in hours for periodic collector account health checks",
     )
+    collector_health_check_hour: int = Field(
+        default=23,
+        description="Daily collector account health-check hour in Asia/Shanghai",
+    )
+    collector_health_check_minute: int = Field(
+        default=30,
+        description="Daily collector account health-check minute in Asia/Shanghai",
+    )
     default_admin_alias: str = Field(
         default="admin",
         description="Development alias accepted by login API for the default admin account",

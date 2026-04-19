@@ -17,6 +17,15 @@ class FetchJobRepository(BaseRepository):
         result = await self.db.execute(Select(FetchJob).order_by(FetchJob.created_at.desc()).limit(limit))
         return list(result.scalars().all())
 
+    async def get_by_id_for_owner(self, job_id: int, owner_user_id, include_all: bool = False) -> FetchJob | None:
+        query = Select(FetchJob).where(FetchJob.id == job_id)
+        if not include_all:
+            from app.models.monitored_account import MonitoredAccount
+
+            query = query.join(MonitoredAccount).where(MonitoredAccount.owner_user_id == owner_user_id)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
     async def get_running_for_monitored_account(
         self,
         monitored_account_id: int,

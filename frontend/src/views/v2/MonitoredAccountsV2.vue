@@ -42,38 +42,37 @@
       <div v-else class="account-list">
         <article v-for="account in filteredAccounts" :key="account.id" class="account-card">
           <div class="account-main">
-            <div>
+            <div class="account-summary">
               <h3>{{ account.name || account.biz || `#${account.id}` }}</h3>
               <p v-if="account.mp_intro">{{ account.mp_intro }}</p>
               <div class="pill-line">
                 <V2StatusPill :label="isDetailOnly(account) ? '仅详情抓取' : '列表+详情'" :tone="isDetailOnly(account) ? 'warning' : 'success'" />
-                <V2StatusPill :label="account.fakeid ? `fakeid ${account.fakeid}` : 'fakeid 未解析'" :tone="account.fakeid ? 'purple' : 'warning'" />
                 <V2StatusPill :label="tierLabel(account)" :tone="isManualTier(account) ? 'purple' : 'yellow'" />
                 <V2StatusPill :label="statusLabel(account.status)" :tone="account.status === 'monitoring' ? 'success' : 'warning'" />
               </div>
             </div>
-            <div class="score-box" :class="{ manual: isManualTier(account) }">
-              <strong>{{ Math.round(account.score || 0) }}</strong>
-              <span>综合得分</span>
-              <small v-if="isManualTier(account)">手动锁定</small>
+            <el-button class="expand-card-button" @click="toggleAccountDetails(account.id)">{{ isExpanded(account.id) ? '收起' : '展开' }}</el-button>
+          </div>
+          <div v-if="isExpanded(account.id)" class="account-details">
+            <div class="details-grid">
+              <span><strong>fakeid</strong>{{ account.fakeid || '未解析' }}</span>
+              <span><strong>抓取方式</strong>{{ fetchModeLabel(account) }}</span>
+              <span><strong>下次抓取</strong>{{ formatDateTime(account.next_scheduled_at) }}</span>
+              <span><strong>解析来源</strong>{{ account.metadata_json?.resolve_source || '-' }}</span>
+              <span><strong>回填状态</strong>{{ backfillStatusLabel(account) }}</span>
+              <span><strong>综合得分</strong>{{ Math.round(account.score || 0) }}<em v-if="isManualTier(account)">手动锁定</em></span>
             </div>
-          </div>
-          <div class="meta-row">
-            <span>抓取方式：{{ fetchModeLabel(account) }}</span>
-            <span>下次抓取：{{ formatDateTime(account.next_scheduled_at) }}</span>
-            <span>解析来源：{{ account.metadata_json?.resolve_source || '-' }}</span>
-            <span class="backfill-inline">回填：{{ backfillStatusLabel(account) }}</span>
-          </div>
-          <div class="v2-button-row">
-            <el-button size="small" @click="copyFeedUrl(account, 'rss')">复制 RSS</el-button>
-            <el-button size="small" @click="copyFeedUrl(account, 'atom')">Atom</el-button>
-            <el-button size="small" @click="copyFeedUrl(account, 'json')">JSON</el-button>
-            <el-button size="small" :loading="fetchLoading[account.id]" :disabled="!canManageAccounts" @click="handleFetch(account)">立即抓取</el-button>
-            <el-button size="small" :loading="backfillLoading[account.id]" :disabled="!canManageAccounts" @click="handleBackfill(account)">历史回填</el-button>
-            <el-button size="small" type="warning" :disabled="!canManageAccounts" @click="handleStopBackfill(account)">停止回填</el-button>
-            <el-button size="small" @click="goToArticles(account)">文章</el-button>
-            <el-button size="small" @click="openEdit(account)">编辑</el-button>
-            <el-button size="small" type="danger" plain :disabled="!canManageAccounts" @click="handleDelete(account)">删除</el-button>
+            <div class="v2-button-row">
+              <el-button size="small" @click="copyFeedUrl(account, 'rss')">复制 RSS</el-button>
+              <el-button size="small" @click="copyFeedUrl(account, 'atom')">Atom</el-button>
+              <el-button size="small" @click="copyFeedUrl(account, 'json')">JSON</el-button>
+              <el-button size="small" :loading="fetchLoading[account.id]" :disabled="!canManageAccounts" @click="handleFetch(account)">立即抓取</el-button>
+              <el-button size="small" :loading="backfillLoading[account.id]" :disabled="!canManageAccounts" @click="handleBackfill(account)">历史回填</el-button>
+              <el-button size="small" type="warning" :disabled="!canManageAccounts" @click="handleStopBackfill(account)">停止回填</el-button>
+              <el-button size="small" @click="goToArticles(account)">文章</el-button>
+              <el-button size="small" @click="openEdit(account)">编辑</el-button>
+              <el-button size="small" type="danger" plain :disabled="!canManageAccounts" @click="handleDelete(account)">删除</el-button>
+            </div>
           </div>
         </article>
       </div>
@@ -141,6 +140,7 @@ const filterStatus = ref('')
 const fetchLoading = ref({})
 const backfillLoading = ref({})
 const backfillStatuses = ref({})
+const expandedAccounts = ref(new Set())
 const createForm = reactive({ source_url: '', name: '', fakeid: '' })
 const editDialog = reactive({ visible: false, account: null, form: { name: '', fakeid: '', status: 'monitoring', target_tier: 3 } })
 
@@ -286,6 +286,17 @@ function goToArticles(account) {
   router.push({ path: '/articles', query: { monitored_account_id: account.id } })
 }
 
+function isExpanded(id) {
+  return expandedAccounts.value.has(id)
+}
+
+function toggleAccountDetails(id) {
+  const next = new Set(expandedAccounts.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedAccounts.value = next
+}
+
 function isDetailOnly(account) {
   return Boolean(account.metadata_json?.capabilities?.detail_only)
 }
@@ -340,7 +351,7 @@ function backfillStatusLabel(account) {
 }
 
 .account-card {
-  border-radius: 26px;
+  border-radius: 24px;
   background: $v2-card-soft;
   padding: 20px;
 }
@@ -349,6 +360,12 @@ function backfillStatusLabel(account) {
   display: flex;
   justify-content: space-between;
   gap: 18px;
+  align-items: flex-start;
+
+  .account-summary {
+    min-width: 0;
+    flex: 1;
+  }
 
   h3 {
     margin: 0 0 8px;
@@ -360,6 +377,10 @@ function backfillStatusLabel(account) {
     margin: 0 0 12px;
     color: $v2-muted;
     font-weight: 700;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 }
 
@@ -370,37 +391,45 @@ function backfillStatusLabel(account) {
   gap: 8px;
 }
 
-.meta-row {
-  margin: 16px 0;
-  color: $v2-muted;
-  font-size: 13px;
-  font-weight: 800;
+.expand-card-button {
+  flex-shrink: 0;
 }
 
-.score-box {
-  text-align: right;
+.account-details {
+  margin-top: 18px;
+  display: grid;
+  gap: 16px;
+  border-radius: 20px;
+  background: rgba(#fff, 0.45);
+  padding: 16px;
+}
 
-  strong {
-    color: $v2-purple;
-    font-size: 36px;
-    line-height: 1;
-  }
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
 
   span {
-    display: block;
+    min-width: 0;
     color: $v2-muted;
+    font-size: 13px;
     font-weight: 800;
+    word-break: break-word;
   }
 
-  small {
+  strong {
     display: block;
-    color: $v2-orange;
+    margin-bottom: 4px;
+    color: $v2-ink;
+    font-size: 12px;
     font-weight: 950;
-    margin-top: 4px;
   }
 
-  &.manual strong {
+  em {
+    margin-left: 8px;
     color: $v2-orange;
+    font-style: normal;
+    font-weight: 950;
   }
 }
 

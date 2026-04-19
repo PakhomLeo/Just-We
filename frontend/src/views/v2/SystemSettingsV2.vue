@@ -6,22 +6,22 @@
     action-rail="设置功能：保存 AI 配置 / 保存限频 / 保存通知 / 测试邮件 / 配置 Redis / 标记需重启项"
   >
     <template #header-actions>
-      <div class="v2-page-actions">
+      <div class="v2-page-actions settings-actions">
         <el-button @click="reloadSettings">重置</el-button>
         <el-button type="warning" :loading="saving" @click="handleSave">保存全部配置</el-button>
       </div>
     </template>
 
     <div class="settings-grid">
-      <V2Section title="AI 文字解析" subtitle="立即生效；Prompt 后端会强制 JSON 输出。">
+      <V2Section title="AI 文字解析" subtitle="立即生效；后端会自动补齐 JSON 输出约束。">
         <el-form label-position="top">
           <el-form-item label="启用 AI"><el-switch v-model="settings.ai.enabled" /></el-form-item>
           <el-form-item label="目标文章类型"><el-input v-model="settings.ai.target_article_type" /></el-form-item>
           <el-form-item label="文字 API URL"><el-input v-model="settings.ai.text_api_url" /></el-form-item>
           <el-form-item label="文字 API Key"><el-input v-model="settings.ai.text_api_key" show-password /></el-form-item>
           <el-form-item label="文字模型"><el-input v-model="settings.ai.text_model" /></el-form-item>
-          <el-form-item label="文字全文解析 Prompt"><el-input v-model="settings.ai.text_analysis_prompt" type="textarea" :rows="4" /></el-form-item>
-          <el-form-item label="类型判断 Prompt"><el-input v-model="settings.ai.type_judgment_prompt" type="textarea" :rows="4" /></el-form-item>
+          <el-form-item label="文字解析关注内容"><el-input v-model="settings.ai.text_analysis_instruction" type="textarea" :rows="4" placeholder="填写希望 AI 从文章中提取或关注的内容，例如：商业模式、关键观点、风险信号。" /></el-form-item>
+          <el-form-item label="类型判断要求"><el-input v-model="settings.ai.type_judgment_instruction" type="textarea" :rows="4" placeholder="填写目标文章的判断标准，例如：只命中 AI 工程化、开源模型和开发者工具相关内容。" /></el-form-item>
         </el-form>
       </V2Section>
 
@@ -31,8 +31,8 @@
           <el-form-item label="图片 API URL"><el-input v-model="settings.ai.image_api_url" /></el-form-item>
           <el-form-item label="图片 API Key"><el-input v-model="settings.ai.image_api_key" show-password /></el-form-item>
           <el-form-item label="图片模型"><el-input v-model="settings.ai.image_model" /></el-form-item>
-          <el-form-item label="图片内容解析 Prompt"><el-input v-model="settings.ai.image_analysis_prompt" type="textarea" :rows="6" /></el-form-item>
-          <el-form-item label="超时秒数"><el-input-number v-model="settings.ai.timeout_seconds" :min="5" :max="300" /></el-form-item>
+          <el-form-item label="图片解析关注内容"><el-input v-model="settings.ai.image_analysis_instruction" type="textarea" :rows="6" placeholder="填写希望 AI 从配图中识别的内容，例如：图表结论、截图文字、产品界面、风险信息。" /></el-form-item>
+          <el-form-item class="full-width-control" label="超时秒数"><el-input-number v-model="settings.ai.timeout_seconds" :min="5" :max="300" /></el-form-item>
         </el-form>
       </V2Section>
 
@@ -80,7 +80,6 @@
       <V2Section title="代理与限频" subtitle="生产环境限频需要 Redis 保证多进程一致。">
         <div class="v2-risk-note">所有服务默认可直连；只有账号或服务手动绑定代理后才优先使用代理，失败后仍会直连兜底。</div>
         <el-form label-position="top" style="margin-top: 16px">
-          <el-form-item label="兼容字段：禁止微信直连"><el-switch v-model="settings.proxyPolicy.disable_direct_wechat_fetch" disabled /></el-form-item>
           <div class="compact-control-grid">
             <el-form-item label="最低成功率"><el-input-number v-model="settings.proxyPolicy.min_success_rate" :min="0" :max="100" /></el-form-item>
             <el-form-item label="全局每分钟"><el-input-number v-model="settings.rateLimitPolicy.global_limit_per_minute" :min="1" /></el-form-item>
@@ -105,11 +104,12 @@
       </V2Section>
 
       <V2Section title="系统与默认管理员" warning>
-        <div class="v2-risk-note">开发态可以展示默认管理员；生产态应弱化或隐藏。部分配置需要重启进程后完全生效。</div>
-        <div class="admin-box">
-          <strong>admin@admin.com</strong>
-          <span>别名：admin · 初始密码：admin123</span>
-        </div>
+        <div class="admin-note">新项目首次启动仍会内置创建 admin/admin123；这里修改的是当前环境的默认管理员账号，密码留空则不变。</div>
+        <el-form class="admin-form" label-position="top">
+          <el-form-item label="管理员邮箱"><el-input v-model="settings.defaultAdmin.email" /></el-form-item>
+          <el-form-item label="登录别名"><el-input v-model="settings.defaultAdmin.alias" disabled /></el-form-item>
+          <el-form-item label="新密码"><el-input v-model="settings.defaultAdmin.password" show-password placeholder="留空则不修改当前密码" /></el-form-item>
+        </el-form>
       </V2Section>
     </div>
   </V2Page>
@@ -122,12 +122,14 @@ import V2Page from '@/components/v2/V2Page.vue'
 import V2Section from '@/components/v2/V2Section.vue'
 import {
   getAIConfig,
+  getDefaultAdmin,
   getFetchPolicy,
   getNotificationEmailConfig,
   getNotificationPolicy,
   getProxyPolicy,
   getRateLimitPolicy,
   updateAIConfig,
+  updateDefaultAdmin,
   updateFetchPolicy,
   updateNotificationEmailConfig,
   updateNotificationPolicy,
@@ -137,7 +139,24 @@ import {
 
 const saving = ref(false)
 const settings = reactive({
-  ai: { enabled: true, target_article_type: '', text_api_url: '', text_api_key: '', text_model: '', image_api_url: '', image_api_key: '', image_model: '', image_enabled: true, text_analysis_prompt: '', image_analysis_prompt: '', type_judgment_prompt: '', timeout_seconds: 60 },
+  ai: {
+    enabled: true,
+    target_article_type: '',
+    text_api_url: '',
+    text_api_key: '',
+    text_model: '',
+    image_api_url: '',
+    image_api_key: '',
+    image_model: '',
+    image_enabled: true,
+    text_analysis_prompt: '',
+    image_analysis_prompt: '',
+    type_judgment_prompt: '',
+    text_analysis_instruction: '',
+    image_analysis_instruction: '',
+    type_judgment_instruction: '',
+    timeout_seconds: 60
+  },
   fetchPolicy: {
     tier_thresholds: { tier1: 80, tier2: 65, tier3: 50, tier4: 35 },
     check_intervals: { 1: 24, 2: 48, 3: 72, 4: 144, 5: 336 },
@@ -155,7 +174,8 @@ const settings = reactive({
   rateLimitPolicy: { global_limit_per_minute: 60, account_limit_per_minute: 20, proxy_limit_per_minute: 30, monitored_limit_per_minute: 20, detail_min_interval_seconds: 1, proxy_failure_cooldown_seconds: 120 },
   proxyPolicy: { disable_direct_wechat_fetch: false, min_success_rate: 50, detail_rotation_strategy: 'round_robin', list_sticky_ttl_seconds: 1800 },
   notificationEmail: { enabled: false, smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', from_email: '', to_emails: [], use_tls: true },
-  notificationPolicy: { credential_check_interval_hours: 6, expiring_notice_hours: [24, 6], webhook_enabled: false, webhook_url: '' }
+  notificationPolicy: { credential_check_interval_hours: 6, expiring_notice_hours: [24, 6], webhook_enabled: false, webhook_url: '' },
+  defaultAdmin: { email: 'admin@admin.com', alias: 'admin', password: '' }
 })
 
 onMounted(() => {
@@ -165,13 +185,14 @@ onMounted(() => {
 onUnmounted(() => window.removeEventListener('v2-save-settings', handleSave))
 
 async function reloadSettings() {
-  const [aiRes, fetchPolicyRes, notificationEmailRes, rateLimitPolicyRes, notificationPolicyRes, proxyPolicyRes] = await Promise.all([
+  const [aiRes, fetchPolicyRes, notificationEmailRes, rateLimitPolicyRes, notificationPolicyRes, proxyPolicyRes, defaultAdminRes] = await Promise.all([
     getAIConfig(),
     getFetchPolicy(),
     getNotificationEmailConfig(),
     getRateLimitPolicy(),
     getNotificationPolicy(),
-    getProxyPolicy()
+    getProxyPolicy(),
+    getDefaultAdmin()
   ])
   Object.assign(settings.ai, aiRes.data)
   settings.ai.text_api_url ||= settings.ai.api_url
@@ -181,6 +202,9 @@ async function reloadSettings() {
   settings.ai.image_api_key ||= settings.ai.api_key
   settings.ai.image_model ||= settings.ai.model
   settings.ai.text_analysis_prompt ||= settings.ai.prompt_template
+  settings.ai.text_analysis_instruction = extractUserInstruction(settings.ai.text_analysis_prompt)
+  settings.ai.image_analysis_instruction = extractUserInstruction(settings.ai.image_analysis_prompt)
+  settings.ai.type_judgment_instruction = extractUserInstruction(settings.ai.type_judgment_prompt)
   Object.assign(settings.fetchPolicy, fetchPolicyRes.data)
   settings.fetchPolicy.tier_thresholds = { tier1: 80, tier2: 65, tier3: 50, tier4: 35, ...(fetchPolicyRes.data.tier_thresholds || {}) }
   settings.fetchPolicy.primary_modes = { 1: 'weread', 2: 'weread', 3: 'mp_admin', 4: 'mp_admin', 5: 'mp_admin', ...(fetchPolicyRes.data.primary_modes || {}) }
@@ -191,6 +215,7 @@ async function reloadSettings() {
   Object.assign(settings.rateLimitPolicy, rateLimitPolicyRes.data)
   Object.assign(settings.notificationPolicy, notificationPolicyRes.data)
   Object.assign(settings.proxyPolicy, proxyPolicyRes.data)
+  Object.assign(settings.defaultAdmin, { ...defaultAdminRes.data, password: '' })
 }
 
 function updateRecipients(value) {
@@ -200,18 +225,83 @@ function updateRecipients(value) {
 async function handleSave() {
   saving.value = true
   try {
+    const aiPayload = buildAIPayload()
     await Promise.all([
-      updateAIConfig({ ...settings.ai, api_url: settings.ai.text_api_url, api_key: settings.ai.text_api_key, model: settings.ai.text_model, prompt_template: settings.ai.text_analysis_prompt }),
+      updateAIConfig(aiPayload),
       updateFetchPolicy(settings.fetchPolicy),
       updateRateLimitPolicy(settings.rateLimitPolicy),
       updateProxyPolicy(settings.proxyPolicy),
       updateNotificationEmailConfig(settings.notificationEmail),
-      updateNotificationPolicy(settings.notificationPolicy)
+      updateNotificationPolicy(settings.notificationPolicy),
+      updateDefaultAdmin({
+        email: settings.defaultAdmin.email,
+        password: settings.defaultAdmin.password || undefined
+      })
     ])
+    settings.defaultAdmin.password = ''
     ElMessage.success('系统设置已保存')
   } finally {
     saving.value = false
   }
+}
+
+function extractUserInstruction(prompt) {
+  const marker = '用户要求：'
+  const value = String(prompt || '')
+  const markerIndex = value.lastIndexOf(marker)
+  return markerIndex >= 0 ? value.slice(markerIndex + marker.length).trim() : ''
+}
+
+function buildAIPayload() {
+  const {
+    text_analysis_instruction,
+    image_analysis_instruction,
+    type_judgment_instruction,
+    ...payload
+  } = settings.ai
+  payload.text_analysis_prompt = composeTextAnalysisPrompt(text_analysis_instruction)
+  payload.image_analysis_prompt = composeImageAnalysisPrompt(image_analysis_instruction)
+  payload.type_judgment_prompt = composeTypeJudgmentPrompt(type_judgment_instruction)
+  payload.prompt_template = payload.text_analysis_prompt
+  payload.api_url = payload.text_api_url
+  payload.api_key = payload.text_api_key
+  payload.model = payload.text_model
+  return payload
+}
+
+function composeTextAnalysisPrompt(instruction) {
+  const lines = [
+    '请分析以下微信公众号文章全文，并只返回 JSON。',
+    '必须输出合法 JSON，不要 Markdown，不要解释。',
+    'JSON 建议包含：summary、key_points、entities、topics、keywords、sentiment、structured_data。',
+    '文章全文：',
+    '{{content}}'
+  ]
+  if (instruction) lines.push(`用户要求：${instruction}`)
+  return lines.join('\n')
+}
+
+function composeImageAnalysisPrompt(instruction) {
+  const lines = [
+    '请分析文章中的图片内容，并只返回 JSON。',
+    '必须输出合法 JSON，不要 Markdown，不要解释。',
+    'JSON 建议包含：summary、images、detected_objects、text_in_images、visual_topics、risk_notes。'
+  ]
+  if (instruction) lines.push(`用户要求：${instruction}`)
+  return lines.join('\n')
+}
+
+function composeTypeJudgmentPrompt(instruction) {
+  const lines = [
+    '请判断这篇文章是否属于用户需要的目标类型，并只返回 JSON。',
+    '目标类型：{{target_type}}',
+    '文字解析结果：{{text_analysis}}',
+    '图片解析结果：{{image_analysis}}',
+    '必须输出合法 JSON，字段 target_match 只能是“是”或“不是”。',
+    'JSON 格式：{"target_match":"是或不是","reason":"判断理由","confidence":0.0到1.0,"matched_signals":["依据"]}'
+  ]
+  if (instruction) lines.push(`用户要求：${instruction}`)
+  return lines.join('\n')
 }
 </script>
 
@@ -222,6 +312,25 @@ async function handleSave() {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 22px;
+}
+
+.settings-actions {
+  align-items: center;
+
+  .el-button {
+    min-height: 42px;
+    padding: 0 24px;
+    font-size: 15px;
+    font-weight: 950;
+  }
+}
+
+.full-width-control {
+  width: 100%;
+
+  :deep(.el-input-number) {
+    width: 100%;
+  }
 }
 
 .compact-control-grid {
@@ -324,21 +433,22 @@ async function handleSave() {
   line-height: 1.6;
 }
 
-.admin-box {
+.admin-note {
   margin-top: 16px;
   border-radius: 22px;
-  background: #fff;
+  background: rgba(#fff, 0.66);
   padding: 18px;
-  display: grid;
-  gap: 6px;
+  color: $v2-muted;
+  font-weight: 850;
+  line-height: 1.65;
+}
 
-  strong {
-    color: $v2-ink;
-  }
+.admin-form {
+  margin-top: 16px;
 
-  span {
-    color: $v2-muted;
-    font-weight: 800;
+  :deep(.el-input),
+  :deep(.el-form-item) {
+    width: 100%;
   }
 }
 

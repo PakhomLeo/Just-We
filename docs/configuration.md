@@ -84,7 +84,8 @@ accounts across multiple WeRead accounts when you need higher fetch volume.
 | `CHECK_INTERVAL_TIER3` | `72` | Tier 3 fetch interval in hours. |
 | `CHECK_INTERVAL_TIER4` | `144` | Tier 4 fetch interval in hours. |
 | `CHECK_INTERVAL_TIER5` | `336` | Tier 5 fetch interval in hours. |
-| `COLLECTOR_HEALTH_CHECK_INTERVAL_HOURS` | `6` | Periodic collector account health-check interval. |
+| `COLLECTOR_HEALTH_CHECK_HOUR` | `23` | Daily automatic collector account health-check hour, in Asia/Shanghai time. |
+| `COLLECTOR_HEALTH_CHECK_MINUTE` | `30` | Daily automatic collector account health-check minute, in Asia/Shanghai time. |
 
 ## SMTP and Notifications
 

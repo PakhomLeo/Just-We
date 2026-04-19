@@ -13,7 +13,11 @@
     </template>
 
     <V2Section title="用户与权限" subtitle="公开注册不作为普通入口，用户由管理员创建。">
-      <div class="v2-risk-note">管理员可修改系统设置、用户和全局策略；删除或提升为 admin 都需要审计。</div>
+      <div class="role-permission-list">
+        <div><strong>管理员</strong><span>可管理系统设置、用户、全局策略、代理、抓取账号和全部监测数据。</span></div>
+        <div><strong>操作员</strong><span>可维护监测对象、抓取流程、文章和导出任务，不能修改系统级配置和用户权限。</span></div>
+        <div><strong>只读用户</strong><span>只能查看已授权范围内的仪表盘、监测对象、文章、日志和导出结果。</span></div>
+      </div>
       <el-table :data="users" v-loading="loading" empty-text="暂无用户" style="margin-top: 18px">
         <el-table-column prop="email" label="邮箱" min-width="220" />
         <el-table-column label="角色" width="130"><template #default="{ row }"><V2StatusPill :label="roleLabel(row.role)" :tone="row.role === 'admin' ? 'danger' : row.role === 'operator' ? 'purple' : 'neutral'" /></template></el-table-column>
@@ -128,3 +132,41 @@ function roleLabel(role) {
   return ({ admin: '管理员', operator: '操作员', viewer: '只读用户' })[role] || role
 }
 </script>
+
+<style lang="scss" scoped>
+@use '@/assets/styles/v2/tokens' as *;
+
+.role-permission-list {
+  display: grid;
+  gap: 10px;
+  border-radius: 22px;
+  background: $v2-card-soft;
+  padding: 14px;
+
+  div {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    min-height: 38px;
+  }
+
+  strong {
+    color: $v2-ink;
+    font-weight: 950;
+  }
+
+  span {
+    color: $v2-muted;
+    font-weight: 800;
+    line-height: 1.5;
+  }
+}
+
+@media (max-width: 760px) {
+  .role-permission-list div {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+</style>

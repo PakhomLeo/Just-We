@@ -33,7 +33,19 @@
     </V2Section>
 
     <V2Section v-if="activeTab === 'jobs'" title="抓取作业" subtitle="失败定位字段前置显示。">
-      <el-table :data="fetchJobs" v-loading="jobsLoading" empty-text="暂无抓取作业">
+      <template #actions>
+        <el-button
+          type="danger"
+          plain
+          :disabled="!selectedJobs.length"
+          :loading="deletingJobs"
+          @click="deleteSelectedJobs"
+        >
+          删除选中
+        </el-button>
+      </template>
+      <el-table :data="fetchJobs" v-loading="jobsLoading" empty-text="暂无抓取作业" @selection-change="selectedJobs = $event">
+        <el-table-column type="selection" width="56" />
         <el-table-column prop="job_type" label="类型" width="145" />
         <el-table-column label="状态" width="110"><template #default="{ row }"><V2StatusPill :label="row.status" :tone="jobTone(row.status)" /></template></el-table-column>
         <el-table-column label="公众号" width="110"><template #default="{ row }">#{{ row.monitored_account_id || '-' }}</template></el-table-column>
@@ -69,18 +81,21 @@
 
 <script setup>
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import V2MetricCard from '@/components/v2/V2MetricCard.vue'
 import V2Page from '@/components/v2/V2Page.vue'
 import V2Section from '@/components/v2/V2Section.vue'
 import V2StatusPill from '@/components/v2/V2StatusPill.vue'
-import { getFetchJobs } from '@/api/fetchJobs'
+import { deleteFetchJob, getFetchJobs } from '@/api/fetchJobs'
 import { getLogs, getLogStats, getLogsByMonitoredAccount } from '@/api/logs'
 import { formatDateTime, jsonText } from './helpers'
 
 const activeTab = ref('jobs')
 const jobsLoading = ref(false)
+const deletingJobs = ref(false)
 const auditLoading = ref(false)
 const fetchJobs = ref([])
+const selectedJobs = ref([])
 const auditLogs = ref([])
 const auditTotal = ref(0)
 const auditPage = ref(1)
@@ -132,6 +147,21 @@ async function loadStats() {
 function openPayload(payload) {
   selectedPayload.value = payload || {}
   payloadDrawer.value = true
+}
+
+async function deleteSelectedJobs() {
+  if (!selectedJobs.value.length) return
+  await ElMessageBox.confirm(`确定删除选中的 ${selectedJobs.value.length} 条抓取作业吗？`, '删除抓取作业', { type: 'warning' })
+  deletingJobs.value = true
+  try {
+    await Promise.all(selectedJobs.value.map(job => deleteFetchJob(job.id)))
+    selectedJobs.value = []
+    ElMessage.success('抓取作业已删除')
+    await loadFetchJobs()
+    await loadStats()
+  } finally {
+    deletingJobs.value = false
+  }
 }
 
 function jobTone(status) {

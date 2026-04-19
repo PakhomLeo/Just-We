@@ -76,6 +76,8 @@ async def update_user(
     # Update user fields if provided
     if request.email is not None:
         user.email = request.email
+    if request.password:
+        user.hashed_password = AuthService(db).hash_password(request.password)
     if request.role is not None:
         user.role = UserRole(request.role.value)
     if request.is_active is not None:

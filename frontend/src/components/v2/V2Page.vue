@@ -66,6 +66,13 @@ defineProps({
     filter: blur(18px);
     pointer-events: none;
   }
+
+  :deep(.v2-grid + .v2-section),
+  :deep(.v2-section + .v2-grid),
+  :deep(.v2-section + .v2-section),
+  :deep(.v2-grid + .v2-grid) {
+    margin-top: 28px;
+  }
 }
 
 .v2-page-header {

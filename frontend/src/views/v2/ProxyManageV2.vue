@@ -71,15 +71,6 @@
         <el-table-column label="状态" width="110">
           <template #default="{ row }"><V2StatusPill :label="row.is_active ? '启用' : '停用'" :tone="row.is_active ? 'success' : 'warning'" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
-          <template #default="{ row }">
-            <div class="v2-button-row">
-              <el-button size="small" @click="handleTest(row)">测试</el-button>
-              <el-button size="small" @click="toggleProxy(row, !row.is_active)">{{ row.is_active ? '停用' : '启用' }}</el-button>
-              <el-button size="small" type="danger" plain @click="handleDelete(row)">删除</el-button>
-            </div>
-          </template>
-        </el-table-column>
       </el-table>
     </V2Section>
 

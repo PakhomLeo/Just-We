@@ -29,6 +29,18 @@ class UserRepository(BaseRepository):
         )
         return result.scalar_one_or_none()
 
+    async def get_first_admin(self) -> User | None:
+        """Return the first active admin/superuser account."""
+        from app.models.user import UserRole
+
+        result = await self.db.execute(
+            Select(User)
+            .where(User.is_active.is_(True), (User.role == UserRole.ADMIN) | (User.is_superuser.is_(True)))
+            .order_by(User.email.asc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     async def update_last_login(self, user: User) -> User:
         """Update user's last login timestamp."""
         from datetime import datetime, timezone

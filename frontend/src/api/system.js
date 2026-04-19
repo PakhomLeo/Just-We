@@ -12,3 +12,5 @@ export const getNotificationEmailConfig = () => request.get('/system/notificatio
 export const updateNotificationEmailConfig = (data) => request.put('/system/notification-email', data)
 export const getNotificationPolicy = () => request.get('/system/notification-policy')
 export const updateNotificationPolicy = (data) => request.put('/system/notification-policy', data)
+export const getDefaultAdmin = () => request.get('/system/default-admin')
+export const updateDefaultAdmin = (data) => request.put('/system/default-admin', data)

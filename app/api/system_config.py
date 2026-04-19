@@ -3,18 +3,24 @@
 from fastapi import APIRouter
 
 from app.core.dependencies import AdminUser, DbSession
+from app.core.config import get_settings
+from app.models.user import UserRole
 from app.schemas.system_config import (
     AIConfigPayload,
+    DefaultAdminPayload,
+    DefaultAdminUpdatePayload,
     FetchPolicyPayload,
     NotificationEmailConfigPayload,
     NotificationPolicyPayload,
     ProxyPolicyPayload,
     RateLimitPolicyPayload,
 )
+from app.services.auth_service import AuthService
 from app.services.system_config_service import SystemConfigService
 
 
 router = APIRouter(prefix="/system", tags=["System Config"])
+settings = get_settings()
 
 
 @router.get("/ai-config", response_model=AIConfigPayload)
@@ -87,3 +93,40 @@ async def get_notification_policy(db: DbSession, current_user: AdminUser):
 async def update_notification_policy(payload: NotificationPolicyPayload, db: DbSession, current_user: AdminUser):
     result = await SystemConfigService(db).update_notification_policy(**payload.model_dump())
     return NotificationPolicyPayload(**result)
+
+
+@router.get("/default-admin", response_model=DefaultAdminPayload)
+async def get_default_admin(db: DbSession, current_user: AdminUser):
+    auth = AuthService(db)
+    user = await auth.user_repo.get_by_email(settings.default_admin_email)
+    user = user or await auth.user_repo.get_first_admin()
+    return DefaultAdminPayload(
+        email=user.email if user else settings.default_admin_email,
+        alias=settings.default_admin_alias,
+        password="",
+    )
+
+
+@router.put("/default-admin", response_model=DefaultAdminPayload)
+async def update_default_admin(payload: DefaultAdminUpdatePayload, db: DbSession, current_user: AdminUser):
+    auth = AuthService(db)
+    user = await auth.user_repo.get_by_email(settings.default_admin_email)
+    user = user or await auth.user_repo.get_first_admin()
+    if user is None:
+        user = await auth.user_repo.create(
+            email=str(payload.email),
+            hashed_password=auth.hash_password(payload.password or settings.default_admin_password),
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_superuser=True,
+        )
+    else:
+        user.email = str(payload.email)
+        user.role = UserRole.ADMIN
+        user.is_active = True
+        user.is_superuser = True
+        if payload.password:
+            user.hashed_password = auth.hash_password(payload.password)
+        await db.flush()
+        await db.refresh(user)
+    return DefaultAdminPayload(email=user.email, alias=settings.default_admin_alias, password="")

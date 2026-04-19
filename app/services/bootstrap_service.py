@@ -23,18 +23,16 @@ class BootstrapService:
             return None
 
         existing = await self.auth_service.user_repo.get_by_email(settings.default_admin_email)
-        hashed_password = self.auth_service.hash_password(settings.default_admin_password)
-        if existing is None:
-            return await self.auth_service.user_repo.create(
-                email=settings.default_admin_email,
-                hashed_password=hashed_password,
-                role=UserRole.ADMIN,
-                is_active=True,
-                is_superuser=True,
-            )
+        if existing is not None:
+            return existing
 
-        return await self.auth_service.user_repo.update(
-            existing,
+        existing_admin = await self.auth_service.user_repo.get_first_admin()
+        if existing_admin is not None:
+            return existing_admin
+
+        hashed_password = self.auth_service.hash_password(settings.default_admin_password)
+        return await self.auth_service.user_repo.create(
+            email=settings.default_admin_email,
             hashed_password=hashed_password,
             role=UserRole.ADMIN,
             is_active=True,

@@ -65,39 +65,56 @@
       </V2Section>
 
       <V2Section title="账号健康与凭证" subtitle="展示风险、冷却、fakeid、锁定代理和最近异常。">
-        <el-table :data="filteredAccounts" v-loading="loading" empty-text="暂无抓取账号">
+        <el-table :data="filteredAccounts" v-loading="loading" row-key="id" empty-text="暂无抓取账号">
+          <el-table-column type="expand" width="92">
+            <template #default="{ row }">
+              <div class="collector-expand">
+                <div class="collector-action-row">
+                  <el-dropdown trigger="click" @command="command => handleAccountCommand(command, row)">
+                    <el-button size="small" :disabled="!canManageAccounts">
+                      更多操作 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                    </el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="health">健康检查</el-dropdown-item>
+                        <el-dropdown-item v-if="row.account_type === 'mp_admin'" command="fakeid">发现 Fakeid</el-dropdown-item>
+                        <el-dropdown-item command="proxy">{{ accountProxyValue(row) ? '更换/解除代理' : '绑定代理' }}</el-dropdown-item>
+                        <el-dropdown-item command="delete" divided>删除账号</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+                <div class="collector-detail-grid">
+                  <article>
+                    <span>Fakeid</span>
+                    <strong>{{ row.metadata_json?.fakeid || (row.account_type === 'mp_admin' ? '未发现' : '-') }}</strong>
+                  </article>
+                  <article>
+                    <span>账号代理</span>
+                    <strong>{{ accountProxyValue(row) ? accountProxyLabelById(accountProxyValue(row)) : '直连' }}</strong>
+                  </article>
+                  <article>
+                    <span>冷却至</span>
+                    <strong>{{ formatDateTime(row.cool_until) }}</strong>
+                  </article>
+                  <article>
+                    <span>过期时间</span>
+                    <strong>{{ formatDateTime(row.expires_at) }}</strong>
+                  </article>
+                  <article>
+                    <span>最近失败</span>
+                    <strong>{{ row.last_error_category || row.last_error_message || '-' }}</strong>
+                  </article>
+                </div>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column prop="display_name" label="账号" min-width="160" />
           <el-table-column label="类型" width="120">
             <template #default="{ row }"><V2StatusPill :label="row.account_type === 'weread' ? '微信读书' : '公众号管理员'" tone="purple" /></template>
           </el-table-column>
           <el-table-column label="健康" width="100">
             <template #default="{ row }"><V2StatusPill :label="healthLabel(row.health_status)" :tone="row.health_status === 'normal' ? 'success' : 'warning'" /></template>
-          </el-table-column>
-          <el-table-column label="Fakeid" min-width="120">
-            <template #default="{ row }">{{ row.metadata_json?.fakeid || (row.account_type === 'mp_admin' ? '未发现' : '-') }}</template>
-          </el-table-column>
-          <el-table-column label="账号代理" min-width="170">
-            <template #default="{ row }">{{ accountProxyValue(row) ? accountProxyLabelById(accountProxyValue(row)) : '直连' }}</template>
-          </el-table-column>
-          <el-table-column label="冷却至" min-width="150">
-            <template #default="{ row }">{{ formatDateTime(row.cool_until) }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="260" fixed="right">
-            <template #default="{ row }">
-              <el-dropdown trigger="click" @command="command => handleAccountCommand(command, row)">
-                <el-button size="small" :disabled="!canManageAccounts">
-                  更多操作 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-                </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="health">健康检查</el-dropdown-item>
-                    <el-dropdown-item v-if="row.account_type === 'mp_admin'" command="fakeid">发现 Fakeid</el-dropdown-item>
-                    <el-dropdown-item command="proxy">{{ accountProxyValue(row) ? '更换/解除代理' : '绑定代理' }}</el-dropdown-item>
-                    <el-dropdown-item command="delete" divided>删除账号</el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </template>
           </el-table-column>
         </el-table>
       </V2Section>
@@ -409,6 +426,74 @@ function daysUntil(value) {
 
 .qr-actions {
   justify-content: center;
+}
+
+.collector-expand {
+  padding: 18px clamp(14px, 4vw, 42px);
+  display: grid;
+  gap: 14px;
+}
+
+.collector-action-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.collector-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+
+  article {
+    min-width: 0;
+    border-radius: 18px;
+    background: #fff;
+    padding: 12px 14px;
+    display: grid;
+    gap: 6px;
+  }
+
+  span {
+    color: $v2-muted;
+    font-size: 12px;
+    font-weight: 950;
+  }
+
+  strong {
+    min-width: 0;
+    color: $v2-ink;
+    font-size: 13px;
+    font-weight: 900;
+    overflow-wrap: anywhere;
+  }
+}
+
+:deep(.el-table__expand-icon) {
+  width: 64px;
+  height: 30px;
+  transform: none !important;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba($v2-line, 0.8) inset;
+  color: $v2-ink;
+  font-size: 12px;
+  font-weight: 950;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+:deep(.el-table__expand-icon .el-icon) {
+  display: none;
+}
+
+:deep(.el-table__expand-icon::before) {
+  content: '展开';
+}
+
+:deep(.el-table__expand-icon--expanded::before) {
+  content: '收起';
 }
 
 @media (max-width: 1100px) {

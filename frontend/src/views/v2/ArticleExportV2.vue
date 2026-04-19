@@ -15,7 +15,7 @@
       <V2Section title="导出配置" subtitle="默认跳过已导出的文章；需要重跑全量时开启“包含已导出”。">
         <el-form label-position="top">
           <el-form-item label="导出范围">
-            <el-segmented v-model="form.scope" :options="scopeOptions" />
+            <el-segmented class="scope-segmented" v-model="form.scope" :options="scopeOptions" />
           </el-form-item>
           <el-form-item v-if="form.scope === 'account'" label="选择公众号">
             <el-select v-model="form.monitored_account_id" filterable placeholder="选择账号">
@@ -198,6 +198,31 @@ function targetLabel(value) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
   gap: 12px;
+}
+
+:deep(.scope-segmented.el-segmented) {
+  width: min(100%, 520px);
+  margin: 0 auto;
+  border-radius: 18px;
+  padding: 6px;
+  background: $v2-card-soft;
+  display: flex;
+  justify-content: center;
+}
+
+:deep(.scope-segmented .el-segmented__group) {
+  width: 100%;
+  gap: 10px;
+}
+
+:deep(.scope-segmented .el-segmented__item) {
+  flex: 1 1 0;
+  border-radius: 14px;
+  min-height: 42px;
+}
+
+:deep(.scope-segmented .el-segmented__item-label) {
+  font-weight: 950;
 }
 
 .export-field {

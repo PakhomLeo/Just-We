@@ -85,7 +85,9 @@
           <el-table-column label="操作" width="260" fixed="right">
             <template #default="{ row }">
               <el-dropdown trigger="click" @command="command => handleAccountCommand(command, row)">
-                <el-button size="small" :disabled="!canManageAccounts">操作</el-button>
+                <el-button size="small" :disabled="!canManageAccounts">
+                  更多操作 <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item command="health">健康检查</el-dropdown-item>
@@ -122,6 +124,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
 import V2MetricCard from '@/components/v2/V2MetricCard.vue'
 import V2Page from '@/components/v2/V2Page.vue'
 import V2Section from '@/components/v2/V2Section.vue'

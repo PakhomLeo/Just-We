@@ -48,19 +48,21 @@
               <div class="pill-line">
                 <V2StatusPill :label="isDetailOnly(account) ? '仅详情抓取' : '列表+详情'" :tone="isDetailOnly(account) ? 'warning' : 'success'" />
                 <V2StatusPill :label="account.fakeid ? `fakeid ${account.fakeid}` : 'fakeid 未解析'" :tone="account.fakeid ? 'purple' : 'warning'" />
-                <V2StatusPill :label="`Tier ${account.tier || 3}`" tone="yellow" />
+                <V2StatusPill :label="tierLabel(account)" :tone="isManualTier(account) ? 'purple' : 'yellow'" />
                 <V2StatusPill :label="statusLabel(account.status)" :tone="account.status === 'monitoring' ? 'success' : 'warning'" />
               </div>
             </div>
-            <div class="score-box">
+            <div class="score-box" :class="{ manual: isManualTier(account) }">
               <strong>{{ Math.round(account.score || 0) }}</strong>
               <span>综合得分</span>
+              <small v-if="isManualTier(account)">手动锁定</small>
             </div>
           </div>
           <div class="meta-row">
             <span>抓取方式：{{ fetchModeLabel(account) }}</span>
             <span>下次抓取：{{ formatDateTime(account.next_scheduled_at) }}</span>
             <span>解析来源：{{ account.metadata_json?.resolve_source || '-' }}</span>
+            <span class="backfill-inline">回填：{{ backfillStatusLabel(account) }}</span>
           </div>
           <div class="v2-button-row">
             <el-button size="small" @click="copyFeedUrl(account, 'rss')">复制 RSS</el-button>
@@ -68,10 +70,10 @@
             <el-button size="small" @click="copyFeedUrl(account, 'json')">JSON</el-button>
             <el-button size="small" :loading="fetchLoading[account.id]" :disabled="!canManageAccounts" @click="handleFetch(account)">立即抓取</el-button>
             <el-button size="small" :loading="backfillLoading[account.id]" :disabled="!canManageAccounts" @click="handleBackfill(account)">历史回填</el-button>
-            <el-button size="small" @click="handleBackfillStatus(account)">回填状态</el-button>
             <el-button size="small" type="warning" :disabled="!canManageAccounts" @click="handleStopBackfill(account)">停止回填</el-button>
             <el-button size="small" @click="goToArticles(account)">文章</el-button>
             <el-button size="small" @click="openEdit(account)">编辑</el-button>
+            <el-button size="small" type="danger" plain :disabled="!canManageAccounts" @click="handleDelete(account)">删除</el-button>
           </div>
         </article>
       </div>
@@ -89,11 +91,12 @@
             <el-option label="失效" value="invalid" />
           </el-select>
         </el-form-item>
-        <el-form-item label="目标 Tier">
+        <el-form-item label="目标 Tier（保存后手动锁定）">
           <el-select v-model="editDialog.form.target_tier" style="width: 100%">
             <el-option v-for="tier in [1,2,3,4,5]" :key="tier" :label="`Tier ${tier}`" :value="tier" />
           </el-select>
         </el-form-item>
+        <div class="v2-risk-note">手动切换后，该公众号会固定使用所选 Tier，不再由综合得分自动调整；得分会以锁定状态展示。</div>
       </el-form>
       <template #footer>
         <el-button @click="editDialog.visible = false">取消</el-button>
@@ -106,7 +109,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import V2Empty from '@/components/v2/V2Empty.vue'
 import V2MetricCard from '@/components/v2/V2MetricCard.vue'
 import V2Page from '@/components/v2/V2Page.vue'
@@ -117,6 +120,7 @@ import { useAuthStore } from '@/stores/auth'
 import { exportFeeds } from '@/api/feeds'
 import {
   createMonitoredAccount,
+  deleteMonitoredAccount,
   getHistoryBackfillStatus,
   getMonitoredAccounts,
   stopHistoryBackfill,
@@ -136,6 +140,7 @@ const accounts = ref([])
 const filterStatus = ref('')
 const fetchLoading = ref({})
 const backfillLoading = ref({})
+const backfillStatuses = ref({})
 const createForm = reactive({ source_url: '', name: '', fakeid: '' })
 const editDialog = reactive({ visible: false, account: null, form: { name: '', fakeid: '', status: 'monitoring', target_tier: 3 } })
 
@@ -156,9 +161,22 @@ async function loadAccounts() {
   try {
     const response = await getMonitoredAccounts()
     accounts.value = response.data?.items || []
+    loadBackfillStatuses()
   } finally {
     loading.value = false
   }
+}
+
+async function loadBackfillStatuses() {
+  const results = await Promise.allSettled(accounts.value.map(async account => {
+    const response = await getHistoryBackfillStatus(account.id)
+    return [account.id, response.data]
+  }))
+  backfillStatuses.value = Object.fromEntries(
+    results
+      .filter(item => item.status === 'fulfilled')
+      .map(item => item.value)
+  )
 }
 
 async function handleCreate() {
@@ -192,20 +210,21 @@ async function handleBackfill(account) {
   try {
     await triggerHistoryBackfill(account.id)
     ElMessage.success('历史回填任务已加入队列')
+    await refreshBackfillStatus(account)
   } finally {
     backfillLoading.value = { ...backfillLoading.value, [account.id]: false }
   }
 }
 
-async function handleBackfillStatus(account) {
+async function refreshBackfillStatus(account) {
   const response = await getHistoryBackfillStatus(account.id)
-  const payload = response.data?.payload || {}
-  ElMessage.info(`回填状态：${response.data?.status || 'idle'}，页码：${payload.page || '-'}，保存：${payload.saved_count || 0}`)
+  backfillStatuses.value = { ...backfillStatuses.value, [account.id]: response.data }
 }
 
 async function handleStopBackfill(account) {
   await stopHistoryBackfill(account.id)
   ElMessage.success('已请求停止历史回填')
+  await refreshBackfillStatus(account)
 }
 
 function feedUrl(account, type = 'rss') {
@@ -256,6 +275,13 @@ async function saveEdit() {
   }
 }
 
+async function handleDelete(account) {
+  await ElMessageBox.confirm(`确定删除公众号“${account.name || account.biz || account.id}”吗？关联文章、通知和作业会一并清理。`, '删除公众号', { type: 'warning' })
+  await deleteMonitoredAccount(account.id)
+  ElMessage.success('公众号已删除')
+  await loadAccounts()
+}
+
 function goToArticles(account) {
   router.push({ path: '/articles', query: { monitored_account_id: account.id } })
 }
@@ -271,6 +297,27 @@ function statusLabel(status) {
 function fetchModeLabel(account) {
   const value = account.fetch_mode
   return ({ mp_admin: '公众号管理员', weread: '微信读书' })[value] || value || '-'
+}
+
+function isManualTier(account) {
+  return Boolean(account.manual_override?.target_tier)
+}
+
+function tierLabel(account) {
+  return `Tier ${account.tier || 3}${isManualTier(account) ? ' · 手动' : ''}`
+}
+
+function backfillStatusLabel(account) {
+  const data = backfillStatuses.value[account.id]
+  if (!data) return '未查询'
+  const payload = data.payload || {}
+  const status = ({ idle: '空闲', running: '运行中', completed: '完成', failed: '失败', stopped: '已停止', stop_requested: '停止中', already_running: '运行中' })[data.status] || data.status || '空闲'
+  const page = payload.page || payload.current_page
+  const saved = payload.saved_count ?? payload.saved ?? payload.total_saved
+  const extras = []
+  if (page) extras.push(`第 ${page} 页`)
+  if (saved !== undefined) extras.push(`保存 ${saved}`)
+  return extras.length ? `${status}（${extras.join('，')}）` : status
 }
 </script>
 
@@ -344,6 +391,22 @@ function fetchModeLabel(account) {
     color: $v2-muted;
     font-weight: 800;
   }
+
+  small {
+    display: block;
+    color: $v2-orange;
+    font-weight: 950;
+    margin-top: 4px;
+  }
+
+  &.manual strong {
+    color: $v2-orange;
+  }
+}
+
+.backfill-inline {
+  color: $v2-purple;
+  font-weight: 950;
 }
 
 @media (max-width: 900px) {

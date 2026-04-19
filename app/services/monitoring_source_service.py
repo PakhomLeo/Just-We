@@ -4,16 +4,20 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models.article import Article
 from app.models.collector_account import (
     CollectorAccount,
     CollectorAccountStatus,
     CollectorAccountType,
     CollectorHealthStatus,
 )
+from app.models.fetch_job import FetchJob
 from app.models.monitored_account import MonitoredAccount
+from app.models.notification import Notification
 from app.repositories.collector_account_repo import CollectorAccountRepository
 from app.repositories.monitored_account_repo import MonitoredAccountRepository
 from app.services.system_config_service import SystemConfigService
@@ -261,4 +265,33 @@ class MonitoringSourceService:
             kwargs["current_tier"] = next_tier
             kwargs["primary_fetch_mode"] = await self.fetch_mode_for_tier(next_tier)
             kwargs["fallback_fetch_mode"] = None
+            kwargs["manual_override"] = {
+                "target_tier": next_tier,
+                "locked": True,
+                "source": "manual_edit",
+            }
         return await self.repo.update(monitored, **kwargs)
+
+    async def delete(self, monitored: MonitoredAccount) -> None:
+        article_ids = select(Article.id).where(Article.monitored_account_id == monitored.id)
+        await self.db.execute(
+            delete(Notification)
+            .where(
+                or_(
+                    Notification.monitored_account_id == monitored.id,
+                    Notification.article_id.in_(article_ids),
+                )
+            )
+            .execution_options(synchronize_session=False)
+        )
+        await self.db.execute(
+            delete(FetchJob)
+            .where(FetchJob.monitored_account_id == monitored.id)
+            .execution_options(synchronize_session=False)
+        )
+        await self.db.execute(
+            delete(Article)
+            .where(Article.monitored_account_id == monitored.id)
+            .execution_options(synchronize_session=False)
+        )
+        await self.repo.delete(monitored)

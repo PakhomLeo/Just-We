@@ -90,7 +90,7 @@ const showNotifications = ref(false)
 const navItems = [
   { key: 'dashboard', label: '总览', to: '/dashboard', active: r => r.path === '/dashboard' },
   { key: 'accounts', label: '账号', to: '/capture-accounts', active: r => r.path.startsWith('/capture-accounts') },
-  { key: 'monitor', label: '监测', to: '/mp-accounts', active: r => r.path.startsWith('/mp-accounts') },
+  { key: 'monitor', label: '公众号', to: '/mp-accounts', active: r => r.path.startsWith('/mp-accounts') },
   { key: 'articles', label: '文章', to: '/articles', active: r => r.path.startsWith('/articles') },
   { key: 'exports', label: '导出', to: '/exports', active: r => r.path.startsWith('/exports') },
   { key: 'proxies', label: '代理', to: '/proxies', active: r => r.path.startsWith('/proxies') },
@@ -151,7 +151,7 @@ function formatDateTime(value) {
   min-height: 76px;
   border-radius: 48px;
   background:
-    linear-gradient(135deg, rgba(226, 238, 245, 0.92), rgba(157, 184, 203, 0.9)),
+    linear-gradient(to bottom left, rgba(226, 238, 245, 0.96) -10%, rgba(157, 184, 203, 0.9) 118%),
     rgba(188, 211, 225, 0.86);
   color: $v2-ink;
   display: flex;

@@ -1,6 +1,6 @@
 """Monitored account API routes."""
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 
 from app.core.dependencies import CurrentUser, DbSession
 from app.schemas.monitored_account import (
@@ -55,6 +55,15 @@ async def update_monitored_account(monitored_account_id: int, request: Monitored
     payload = {k: v for k, v in request.model_dump().items() if v is not None}
     updated = await service.update(account, **payload)
     return MonitoredAccountResponse.model_validate(updated)
+
+
+@router.delete("/{monitored_account_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_monitored_account(monitored_account_id: int, db: DbSession, current_user: CurrentUser):
+    service = MonitoringSourceService(db)
+    account = await service.get_visible(monitored_account_id, current_user)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Monitored account not found")
+    await service.delete(account)
 
 
 @router.post("/{monitored_account_id}/fetch")

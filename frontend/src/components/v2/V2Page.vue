@@ -49,7 +49,7 @@ defineProps({
   z-index: 1;
   min-height: calc(100vh - 164px);
   border-radius: 34px;
-  background: rgba($v2-panel, 0.94);
+  background: linear-gradient(to bottom left, rgba($v2-panel, 0.98) -6%, rgba(#edf5fa, 0.96) 54%, rgba(#dfeaf3, 0.94) 120%);
   padding: 40px;
   box-shadow: $v2-shadow-soft;
   overflow: hidden;
@@ -57,12 +57,12 @@ defineProps({
   &::before {
     content: '';
     position: absolute;
-    width: 460px;
-    height: 460px;
-    right: -180px;
-    top: -220px;
+    width: 620px;
+    height: 620px;
+    right: -230px;
+    top: -260px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba($v2-purple, 0.2), transparent 68%);
+    background: radial-gradient(circle, rgba($v2-purple, 0.22), transparent 72%);
     filter: blur(18px);
     pointer-events: none;
   }

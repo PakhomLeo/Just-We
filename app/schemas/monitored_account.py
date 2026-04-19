@@ -40,6 +40,7 @@ class MonitoredAccountResponse(BaseModel):
     last_polled_at: datetime | None
     last_published_at: datetime | None
     next_scheduled_at: datetime | None
+    manual_override: dict | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -8,7 +8,7 @@ import httpx
 import pytest
 from httpx import AsyncClient, ASGITransport
 from redis.exceptions import ConnectionError as RedisConnectionError
-from sqlalchemy import Select
+from sqlalchemy import Select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
@@ -18,6 +18,7 @@ from app.models.user import User, UserRole
 from app.models.article import Article
 from app.models.collector_account import CollectorHealthStatus
 from app.models.log import OperationLog
+from app.models.monitored_account import MonitoredAccount
 from app.models.notification import Notification
 from app.models.proxy import Proxy, ProxyKind
 
@@ -268,6 +269,75 @@ class TestMonitoredAndCollectorIsolationAPI:
             response = await client.get(f"/api/monitored-accounts/{other_monitored_account.id}")
 
         assert response.status_code == 404
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_update_target_tier_locks_manual_override(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+        mock_monitored_account: MonitoredAccount,
+    ):
+        mock_user.role = UserRole.VIEWER
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.put(
+                f"/api/monitored-accounts/{mock_monitored_account.id}",
+                json={"target_tier": 1},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["current_tier"] == 1
+        assert data["manual_override"]["target_tier"] == 1
+        assert data["manual_override"]["locked"] is True
+
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_delete_monitored_account_removes_dependents(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+        mock_monitored_account: MonitoredAccount,
+        mock_monitored_article: Article,
+    ):
+        mock_user.role = UserRole.VIEWER
+        notification = Notification(
+            owner_user_id=mock_user.id,
+            monitored_account_id=mock_monitored_account.id,
+            article_id=mock_monitored_article.id,
+            notification_type="article_update",
+            title="New article",
+            content="New monitored article",
+            payload={},
+        )
+        test_db.add(notification)
+        await test_db.commit()
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            delete_response = await client.delete(f"/api/monitored-accounts/{mock_monitored_account.id}")
+            get_response = await client.get(f"/api/monitored-accounts/{mock_monitored_account.id}")
+
+        assert delete_response.status_code == 204
+        assert get_response.status_code == 404
+        account_count = await test_db.scalar(Select(func.count()).select_from(MonitoredAccount))
+        article_count = await test_db.scalar(Select(func.count()).select_from(Article))
+        notification_count = await test_db.scalar(Select(func.count()).select_from(Notification))
+        assert account_count == 0
+        assert article_count == 0
+        assert notification_count == 0
+
         app.dependency_overrides.clear()
 
     @pytest.mark.asyncio

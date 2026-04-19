@@ -29,8 +29,10 @@ class HealthCheckService:
         expires_at = account.expires_at
 
         if account.account_type == CollectorAccountType.MP_ADMIN:
-            if not (account.credentials.get("cookies") or account.credentials):
+            if not (account.credentials.get("cookies") or account.credentials.get("cookie")):
                 return CollectorHealthStatus.INVALID, "未设置 MP Admin Cookie", expires_at
+            if not account.credentials.get("token"):
+                return CollectorHealthStatus.INVALID, "缺少 MP Admin token，请重新扫码登录公众号后台账号", expires_at
         elif account.account_type == CollectorAccountType.WEREAD:
             if not (account.credentials.get("token") or account.credentials.get("cookies")):
                 return CollectorHealthStatus.INVALID, "未设置 WeRead 凭证", expires_at

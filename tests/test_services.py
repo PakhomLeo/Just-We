@@ -403,6 +403,60 @@ class TestQRLoginService:
         assert saved.credentials["token"] == "real-token"
 
     @pytest.mark.asyncio
+    async def test_get_status_does_not_persist_failed_provider_account(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+        monkeypatch,
+    ):
+        """Provider failures should surface in QR status without creating a usable account."""
+
+        class StubProvider:
+            provider_name = "mp_admin"
+
+            async def generate(self):
+                from app.services.qr_providers import ProviderGenerateResult
+
+                return ProviderGenerateResult(
+                    qr_url="https://scan.example.com/qr",
+                    provider_ticket="provider-ticket-2",
+                    expire_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+                    state={"provider_ticket": "provider-ticket-2"},
+                )
+
+            async def poll(self, state):
+                from app.services.qr_providers import ProviderPollResult
+
+                return ProviderPollResult(
+                    status="failed",
+                    state=state,
+                    message="公众号后台登录未返回 token",
+                )
+
+            async def cancel(self, state):
+                return None
+
+        monkeypatch.setattr("app.services.qr_login_service.get_qr_provider", lambda account_type: StubProvider())
+
+        service = QRLoginService(test_db)
+        service.redis = FakeRedis()
+
+        generate_result = await service.generate(
+            MagicMock(type=CollectorAccountType.MP_ADMIN),
+            mock_user,
+        )
+        status = await service.get_status(generate_result.ticket, mock_user)
+
+        assert status.status == "failed"
+        assert status.collector_account_id is None
+        saved = await service.collector_account_service.repo.get_by_owner_type_and_external_id(
+            mock_user.id,
+            CollectorAccountType.MP_ADMIN,
+            "provider-ticket-2",
+        )
+        assert saved is None
+
+    @pytest.mark.asyncio
     async def test_update_ai_analysis(self, test_db: AsyncSession, mock_article: Article):
         """Test updating article AI analysis."""
         service = ArticleService(test_db)
@@ -650,6 +704,47 @@ class TestFetcherService:
         assert len(client.calls) == 2
         assert client.calls[0][1]["params"]["begin"] == 0
         assert client.calls[1][1]["params"]["begin"] == 2
+
+    @pytest.mark.asyncio
+    async def test_mp_fetcher_requires_token_before_list_request(self, test_db: AsyncSession):
+        """MP admin list fetches must not hit WeChat when the login token is missing."""
+        fetcher = FetcherService(test_db)
+        owner_user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        monitored = MonitoredAccount(
+            owner_user_id=owner_user_id,
+            biz="biz123",
+            fakeid="fakeid123",
+            name="Test MP",
+            source_url="https://mp.weixin.qq.com/s/source",
+            current_tier=3,
+            composite_score=50.0,
+            primary_fetch_mode=CollectorAccountType.MP_ADMIN,
+            fallback_fetch_mode=CollectorAccountType.WEREAD,
+            status=MonitoredAccountStatus.MONITORING,
+            update_history={},
+            ai_relevance_history={},
+            strategy_config={"mp_max_pages": 1, "mp_page_size": 1},
+        )
+        collector = CollectorAccount(
+            owner_user_id=owner_user_id,
+            account_type=CollectorAccountType.MP_ADMIN,
+            display_name="Collector",
+            credentials={"cookies": {"session": "abc"}, "token": None},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={},
+        )
+
+        fetcher.mp_fetcher._sleep_with_policy = AsyncMock()
+        fetcher.mp_fetcher._build_client = MagicMock()
+
+        with pytest.raises(FetchFailedException) as exc_info:
+            await fetcher.mp_fetcher.fetch_updates(monitored, collector, None)
+
+        assert exc_info.value.details["category"] == "credentials_invalid"
+        assert exc_info.value.details["retryable"] is False
+        fetcher.mp_fetcher._build_client.assert_not_called()
 
     def test_extract_article_metadata_from_wechat_html(self):
         """Test detail metadata extraction from WeChat article HTML."""
@@ -1109,6 +1204,58 @@ class TestFetchPipelineService:
     """Targeted tests for monitored fetch pipeline behavior."""
 
     @pytest.mark.asyncio
+    async def test_weread_platform_account_falls_back_when_mp_admin_unavailable(self, test_db: AsyncSession):
+        """A WeRead-resolved account should keep fetching through WeRead if MP admin is not usable."""
+        owner_user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        monitored = MonitoredAccount(
+            owner_user_id=owner_user_id,
+            biz="biz-weread-platform",
+            fakeid="fake-weread-platform",
+            name="WeRead Platform MP",
+            source_url="https://mp.weixin.qq.com/s/weread-platform",
+            metadata_json={"resolve_source": "weread_platform", "weread_platform_mp_id": "MP_WXS_1"},
+            current_tier=3,
+            composite_score=50.0,
+            primary_fetch_mode=CollectorAccountType.MP_ADMIN,
+            fallback_fetch_mode=None,
+            status=MonitoredAccountStatus.MONITORING,
+            update_history={},
+            ai_relevance_history={},
+            strategy_config={},
+        )
+        invalid_mp = CollectorAccount(
+            owner_user_id=owner_user_id,
+            account_type=CollectorAccountType.MP_ADMIN,
+            display_name="Invalid MP Admin",
+            credentials={"cookies": {"session": "abc"}, "token": None},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={},
+        )
+        weread = CollectorAccount(
+            owner_user_id=owner_user_id,
+            account_type=CollectorAccountType.WEREAD,
+            display_name="WeRead Collector",
+            credentials={"token": "token123", "vid": "vid123"},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={"provider": "weread_platform"},
+        )
+        test_db.add_all([monitored, invalid_mp, weread])
+        await test_db.commit()
+        await test_db.refresh(monitored)
+        await test_db.refresh(weread)
+
+        pipeline = FetchPipelineService(test_db)
+        selected = await pipeline._select_collector(monitored)
+
+        assert selected.id == weread.id
+        await test_db.refresh(monitored)
+        assert monitored.primary_fetch_mode == CollectorAccountType.WEREAD
+
+    @pytest.mark.asyncio
     async def test_pipeline_skips_existing_article_urls(self, test_db: AsyncSession):
         """Pipeline should avoid refetching URLs already stored."""
         owner_user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -1406,6 +1553,27 @@ class TestCollectorHealthService:
 
         assert status == CollectorHealthStatus.EXPIRED
         assert reason == "已跳转到登录页"
+
+    @pytest.mark.asyncio
+    async def test_mp_admin_missing_token_is_invalid_without_probe(self):
+        service = HealthCheckService()
+        account = CollectorAccount(
+            owner_user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            account_type=CollectorAccountType.MP_ADMIN,
+            display_name="Collector",
+            credentials={"cookies": {"session": "abc"}, "token": None},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={},
+        )
+
+        with patch.object(service, "_check_mp_admin_collector", new=AsyncMock()) as probe:
+            status, reason, _ = await service.check_collector_account_health(account)
+
+        assert status == CollectorHealthStatus.INVALID
+        assert "token" in reason
+        probe.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_weread_expiring_soon_is_reported(self):

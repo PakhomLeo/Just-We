@@ -258,6 +258,13 @@ class CollectorAccountService:
             return False
         if account.health_status != CollectorHealthStatus.NORMAL:
             return False
+        credentials = account.credentials or {}
+        if account.account_type == CollectorAccountType.MP_ADMIN:
+            if not credentials.get("token") or not (credentials.get("cookies") or credentials.get("cookie")):
+                return False
+        elif account.account_type == CollectorAccountType.WEREAD:
+            if not (credentials.get("token") or credentials.get("cookies")):
+                return False
         cool_until = account.cool_until
         if cool_until is None:
             return True

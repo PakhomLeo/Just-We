@@ -53,7 +53,7 @@
           <span v-else>QR</span>
         </div>
         <div class="qr-state-row">
-          <V2StatusPill :label="qrStatusLabel(qrStatus)" :tone="qrStatus === 'confirmed' ? 'success' : qrStatus === 'expired' ? 'danger' : 'purple'" />
+          <V2StatusPill :label="qrStatusLabel(qrStatus)" :tone="qrStatus === 'confirmed' ? 'success' : ['expired', 'failed'].includes(qrStatus) ? 'danger' : 'purple'" />
           <span>{{ qrExpireAt ? `有效期：${formatDateTime(qrExpireAt)}` : '尚未生成二维码' }}</span>
         </div>
         <p v-if="qrMessage" class="qr-message">{{ qrMessage }}</p>
@@ -268,7 +268,7 @@ async function checkQRStatus() {
       resetQR()
       await loadAccounts()
     }
-    if (response.data.status === 'expired') stopPolling()
+    if (['expired', 'failed'].includes(response.data.status)) stopPolling()
   } catch {
     qrMessage.value = '二维码状态查询失败'
     stopPolling()
@@ -317,7 +317,7 @@ function healthLabel(status) {
 }
 
 function qrStatusLabel(status) {
-  return ({ waiting: '等待扫码', scanned: '已扫码', confirmed: '登录成功', expired: '已过期' })[status] || status
+  return ({ waiting: '等待扫码', scanned: '已扫码', confirmed: '登录成功', expired: '已过期', failed: '登录失败' })[status] || status
 }
 
 function daysUntil(value) {

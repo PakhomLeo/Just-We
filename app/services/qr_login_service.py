@@ -90,7 +90,7 @@ class QRLoginService:
         if current_user is not None and payload.get("owner_user_id") != str(current_user.id) and current_user.role.value != "admin":
             raise QRCodeNotFoundException(ticket)
 
-        if payload.get("status") != "confirmed":
+        if payload.get("status") not in {"confirmed", "expired", "failed"}:
             if self._is_expired(payload):
                 await self.update_payload(ticket, payload, status="expired")
                 payload["status"] = "expired"
@@ -186,6 +186,7 @@ class QRLoginService:
             "scanned": "已扫码，请在手机上确认登录",
             "confirmed": "登录成功",
             "expired": "二维码已过期，请重新生成",
+            "failed": "登录失败，请重新生成二维码",
         }.get(status, "未知状态")
 
     def _get_provider(self, account_type: CollectorAccountType, proxy_url: str | None):

@@ -91,11 +91,16 @@ class FetchPipelineService:
             metadata.get("resolve_source") == "weread_platform"
             or bool(metadata.get("weread_platform_mp_id"))
         )
-        candidate_modes = (
-            [monitored_account.primary_fetch_mode, policy_mode, monitored_account.fallback_fetch_mode]
-            if is_weread_platform_account
-            else [policy_mode, monitored_account.primary_fetch_mode, monitored_account.fallback_fetch_mode]
-        )
+        if is_weread_platform_account:
+            candidate_modes = [
+                monitored_account.primary_fetch_mode,
+                policy_mode,
+                monitored_account.fallback_fetch_mode,
+                CollectorAccountType.WEREAD,
+                CollectorAccountType.MP_ADMIN,
+            ]
+        else:
+            candidate_modes = [policy_mode, monitored_account.primary_fetch_mode, monitored_account.fallback_fetch_mode]
         seen_modes: set[CollectorAccountType] = set()
         for fetch_mode in candidate_modes:
             if fetch_mode is None or fetch_mode in seen_modes:

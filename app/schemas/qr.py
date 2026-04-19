@@ -36,7 +36,7 @@ class QRGenerateResponse(BaseModel):
 class QRStatusResponse(BaseModel):
     """Schema for QR code status response."""
 
-    status: str  # waiting, scanned, confirmed, expired
+    status: str  # waiting, scanned, confirmed, expired, failed
     collector_account_id: int | None = None
     account_name: str | None = None
     message: str | None = None

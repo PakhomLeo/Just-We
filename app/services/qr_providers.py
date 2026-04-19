@@ -191,6 +191,20 @@ class MpAdminQRProvider(BaseQRProvider):
                 return token_match.group(1)
         return None
 
+    def _login_failure_reason(self, payload: dict[str, Any], token: str | None) -> str | None:
+        base_resp = payload.get("base_resp") or {}
+        ret = base_resp.get("ret")
+        try:
+            ret_value = int(ret) if ret is not None else None
+        except Exception:
+            ret_value = ret
+        if ret_value not in {None, 0}:
+            errmsg = base_resp.get("errmsg") or payload.get("errmsg") or f"ret={ret}"
+            return f"公众号后台未完成授权或拒绝登录：{errmsg}"
+        if not token:
+            return "公众号后台登录未返回 token，请确认扫码账号有公众号后台权限并完成授权"
+        return None
+
     def _extract_home_profile(self, html: str) -> dict[str, str | None]:
         nickname = None
         fakeid = None
@@ -374,7 +388,14 @@ class MpAdminQRProvider(BaseQRProvider):
             if status_code in {2, 4, "scan"}:
                 return ProviderPollResult(status="scanned", state=updated_state, message="已扫码，请确认登录")
             if status_code in {1, 3, "confirm", "confirmed"}:
-                account_payload = await self._finalize_login(updated_state)
+                try:
+                    account_payload = await self._finalize_login(updated_state)
+                except QRProviderException as exc:
+                    return ProviderPollResult(
+                        status="failed",
+                        state=updated_state,
+                        message=exc.details.get("reason") or str(exc),
+                    )
                 return ProviderPollResult(
                     status="confirmed",
                     state=updated_state,
@@ -411,6 +432,9 @@ class MpAdminQRProvider(BaseQRProvider):
             except Exception:
                 payload = {}
             token = cookies.get("token") or self._extract_token_from_login_response(response, payload)
+            failure_reason = self._login_failure_reason(payload, token)
+            if failure_reason:
+                raise QRProviderException(self.provider_name, failure_reason)
             credentials = {
                 "token": token,
                 "cookies": cookies,

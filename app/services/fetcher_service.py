@@ -859,6 +859,13 @@ class MpAdminFetcher(BaseChannelFetcher):
                 category=FETCH_CATEGORY_CREDENTIALS,
                 retryable=False,
             )
+        if not token:
+            raise FetchFailedException(
+                monitored_account.id,
+                "Missing MP admin token",
+                category=FETCH_CATEGORY_CREDENTIALS,
+                retryable=False,
+            )
 
         max_pages = int((monitored_account.strategy_config or {}).get("mp_max_pages", 3))
         page_size = int((monitored_account.strategy_config or {}).get("mp_page_size", 5))

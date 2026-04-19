@@ -188,7 +188,7 @@ class SystemConfigService:
                 },
             },
             proxy_policy={
-                "disable_direct_wechat_fetch": True,
+                "disable_direct_wechat_fetch": False,
                 "min_success_rate": 50.0,
                 "proxy_failure_cooldown_seconds": 120,
                 "detail_rotation_strategy": "round_robin",
@@ -243,7 +243,7 @@ class SystemConfigService:
     async def get_proxy_policy(self) -> dict:
         policy = await self.get_or_create_fetch_policy()
         return policy.proxy_policy or {
-            "disable_direct_wechat_fetch": True,
+            "disable_direct_wechat_fetch": False,
             "min_success_rate": 50.0,
             "proxy_failure_cooldown_seconds": 120,
             "detail_rotation_strategy": "round_robin",

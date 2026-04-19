@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.exceptions import FetchFailedException
 from app.models.collector_account import CollectorAccountType
 from app.models.fetch_job import FetchJobType
+from app.models.proxy import ProxyServiceKey
 from app.repositories.monitored_account_repo import MonitoredAccountRepository
 from app.services.ai_service import AIService
 from app.services.article_service import ArticleService
@@ -45,6 +46,18 @@ class FetchPipelineService:
     async def _build_adjuster(self) -> DynamicWeightAdjuster:
         config = await WeightConfigService(self.db).get_or_create()
         return DynamicWeightAdjuster(**WeightConfigService.to_adjuster_kwargs(config))
+
+    async def _analyze_article_with_proxy_fallback(self, content: str, images: list[str]):
+        proxy = await self.fetcher.proxy_service.select_proxy(ProxyServiceKey.AI)
+        if proxy is None:
+            return await self.ai_service.analyze_article(content, images)
+        try:
+            result = await self.ai_service.analyze_article(content, images, proxy=proxy.proxy_url)
+            await self.fetcher.proxy_service.mark_proxy_success(proxy)
+            return result
+        except Exception as exc:
+            await self.fetcher.proxy_service.mark_proxy_failure(proxy, str(exc), cooldown_seconds=120)
+            return await self.ai_service.analyze_article(content, images)
 
     def _schedule_monitored_account(self, monitored_account_id: int, tier: int):
         from app.tasks.fetch_task import run_single_account
@@ -251,7 +264,7 @@ class FetchPipelineService:
                     proxy=detail_proxy,
                 )
                 try:
-                    ai_result = await self.ai_service.analyze_article(parsed.content, parsed.images)
+                    ai_result = await self._analyze_article_with_proxy_fallback(parsed.content, parsed.images)
                     ai_pipeline_result = getattr(self.ai_service, "last_pipeline_result", None)
                 except Exception as exc:
                     ai_result = {

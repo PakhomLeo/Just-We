@@ -7,6 +7,7 @@ from app.core.dependencies import CurrentUser, DbSession
 from app.core.exceptions import QRProviderNotConfiguredException
 from app.schemas.collector_account import (
     CollectorAccountListResponse,
+    CollectorProxyUpdate,
     CollectorAccountResponse,
     CollectorLoginProxyUpdate,
 )
@@ -19,6 +20,26 @@ from app.services.qr_providers import discover_mp_admin_profile
 
 
 router = APIRouter(prefix="/collector-accounts", tags=["Collector Accounts"])
+
+
+async def _validate_account_proxy(db, account, proxy_id: int | None) -> None:
+    if proxy_id is None:
+        return
+    from app.models.collector_account import CollectorAccountType
+    from app.models.proxy import ProxyServiceKey
+    from app.repositories.proxy_repo import ProxyRepository
+    from app.services.proxy_service import ProxyService
+
+    proxy = await ProxyRepository(db).get_by_id(proxy_id)
+    if proxy is None:
+        raise HTTPException(status_code=404, detail="Proxy not found")
+    service_key = (
+        ProxyServiceKey.WEREAD_LOGIN
+        if account.account_type == CollectorAccountType.WEREAD
+        else ProxyServiceKey.MP_ADMIN_LOGIN
+    )
+    if service_key not in ProxyService(db).compatible_service_keys(proxy):
+        raise HTTPException(status_code=400, detail="所选代理类型不能用于该账号登录/列表")
 
 
 @router.get("/", response_model=CollectorAccountListResponse)
@@ -86,10 +107,10 @@ async def discover_collector_fakeid(collector_account_id: int, db: DbSession, cu
     return CollectorAccountResponse.model_validate(updated)
 
 
-@router.put("/{collector_account_id}/login-proxy", response_model=CollectorAccountResponse)
-async def update_collector_login_proxy(
+@router.put("/{collector_account_id}/proxy", response_model=CollectorAccountResponse)
+async def update_collector_proxy(
     collector_account_id: int,
-    request: CollectorLoginProxyUpdate,
+    request: CollectorProxyUpdate,
     db: DbSession,
     current_user: CurrentUser,
 ):
@@ -97,20 +118,24 @@ async def update_collector_login_proxy(
     account = await service.get_visible(collector_account_id, current_user)
     if account is None:
         raise HTTPException(status_code=404, detail="Collector account not found")
-    if account.account_type.value != "mp_admin":
-        raise HTTPException(status_code=400, detail="Only mp_admin collector accounts can bind a login proxy")
-    if request.login_proxy_id is not None:
-        from app.repositories.proxy_repo import ProxyRepository
-        from app.models.proxy import ProxyServiceKey
-        from app.services.proxy_service import ProxyService
-
-        proxy = await ProxyRepository(db).get_by_id(request.login_proxy_id)
-        if proxy is None:
-            raise HTTPException(status_code=404, detail="Proxy not found")
-        if ProxyServiceKey.MP_ADMIN_LOGIN not in ProxyService(db).compatible_service_keys(proxy):
-            raise HTTPException(status_code=400, detail="所选代理类型不能用于公众号管理员登录")
-    updated = await service.update_login_proxy(account, request.login_proxy_id)
+    await _validate_account_proxy(db, account, request.proxy_id)
+    updated = await service.update_account_proxy(account, request.proxy_id)
     return CollectorAccountResponse.model_validate(updated)
+
+
+@router.put("/{collector_account_id}/login-proxy", response_model=CollectorAccountResponse)
+async def update_collector_login_proxy(
+    collector_account_id: int,
+    request: CollectorLoginProxyUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    return await update_collector_proxy(
+        collector_account_id,
+        CollectorProxyUpdate(proxy_id=request.login_proxy_id),
+        db,
+        current_user,
+    )
 
 
 @router.delete("/{collector_account_id}", status_code=204)

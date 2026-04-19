@@ -15,7 +15,11 @@ class QRGenerateRequest(BaseModel):
         validation_alias=AliasChoices("type", "account_type"),
         serialization_alias="type",
     )
-    login_proxy_id: int | None = Field(default=None, description="mp_admin 登录固定代理 ID")
+    proxy_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("proxy_id", "login_proxy_id"),
+        description="账号登录/列表共用代理 ID；为空时直连",
+    )
 
 
 class QRGenerateResponse(BaseModel):
@@ -25,6 +29,7 @@ class QRGenerateResponse(BaseModel):
     ticket: str
     expire_at: datetime
     provider: str | None = None
+    proxy_id: int | None = None
     login_proxy_id: int | None = None
 
 

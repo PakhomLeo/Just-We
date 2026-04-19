@@ -97,7 +97,7 @@ class NotificationPolicyPayload(BaseModel):
 
 
 class ProxyPolicyPayload(BaseModel):
-    disable_direct_wechat_fetch: bool = True
+    disable_direct_wechat_fetch: bool = False
     min_success_rate: float = 50.0
     proxy_failure_cooldown_seconds: int = 120
     detail_rotation_strategy: str = "round_robin"

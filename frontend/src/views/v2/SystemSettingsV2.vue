@@ -78,9 +78,9 @@
       </V2Section>
 
       <V2Section title="代理与限频" subtitle="生产环境限频需要 Redis 保证多进程一致。">
-        <div class="v2-risk-note">微信链路建议禁用直连；登录代理使用静态 ISP/静态住宅，详情抓取使用旋转住宅/移动。</div>
+        <div class="v2-risk-note">所有服务默认可直连；只有账号或服务手动绑定代理后才优先使用代理，失败后仍会直连兜底。</div>
         <el-form label-position="top" style="margin-top: 16px">
-          <el-form-item label="禁止微信直连"><el-switch v-model="settings.proxyPolicy.disable_direct_wechat_fetch" /></el-form-item>
+          <el-form-item label="兼容字段：禁止微信直连"><el-switch v-model="settings.proxyPolicy.disable_direct_wechat_fetch" disabled /></el-form-item>
           <div class="compact-control-grid">
             <el-form-item label="最低成功率"><el-input-number v-model="settings.proxyPolicy.min_success_rate" :min="0" :max="100" /></el-form-item>
             <el-form-item label="全局每分钟"><el-input-number v-model="settings.rateLimitPolicy.global_limit_per_minute" :min="1" /></el-form-item>
@@ -153,7 +153,7 @@ const settings = reactive({
     daily_account_fetch_policy: { daily_runs: 2, quiet_start: '23:00', quiet_end: '06:00', allow_manual_in_quiet_window: true, allow_backlog_in_quiet_window: true }
   },
   rateLimitPolicy: { global_limit_per_minute: 60, account_limit_per_minute: 20, proxy_limit_per_minute: 30, monitored_limit_per_minute: 20, detail_min_interval_seconds: 1, proxy_failure_cooldown_seconds: 120 },
-  proxyPolicy: { disable_direct_wechat_fetch: true, min_success_rate: 50, detail_rotation_strategy: 'round_robin', list_sticky_ttl_seconds: 1800 },
+  proxyPolicy: { disable_direct_wechat_fetch: false, min_success_rate: 50, detail_rotation_strategy: 'round_robin', list_sticky_ttl_seconds: 1800 },
   notificationEmail: { enabled: false, smtp_host: '', smtp_port: 587, smtp_username: '', smtp_password: '', from_email: '', to_emails: [], use_tls: true },
   notificationPolicy: { credential_check_interval_hours: 6, expiring_notice_hours: [24, 6], webhook_enabled: false, webhook_url: '' }
 })

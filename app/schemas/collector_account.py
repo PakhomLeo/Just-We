@@ -30,6 +30,7 @@ class CollectorAccountResponse(BaseModel):
     risk_reason: str | None
     cool_until: datetime | None = None
     last_error_category: str | None = None
+    bound_proxy_id: int | None = None
     login_proxy_id: int | None = None
     login_proxy_locked: bool = True
     last_login_proxy_ip: str | None = None
@@ -48,3 +49,7 @@ class CollectorAccountListResponse(BaseModel):
 
 class CollectorLoginProxyUpdate(BaseModel):
     login_proxy_id: int | None
+
+
+class CollectorProxyUpdate(BaseModel):
+    proxy_id: int | None

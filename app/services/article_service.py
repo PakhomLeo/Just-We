@@ -183,6 +183,14 @@ class ArticleService:
             ai_analysis_error=ai_analysis_error,
         )
 
+    async def delete_visible_article(self, article_id: int, current_user) -> bool:
+        """Delete an article the current user is allowed to see."""
+        article = await self.get_visible_article(article_id, current_user)
+        if article is None:
+            return False
+        await self.article_repo.delete(article)
+        return True
+
     async def get_article_count(self, monitored_account_id: int) -> int:
         """Get total article count for a monitored account."""
         return await self.article_repo.get_count_by_monitored_account(monitored_account_id)

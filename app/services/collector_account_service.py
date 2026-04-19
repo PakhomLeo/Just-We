@@ -113,24 +113,23 @@ class CollectorAccountService:
             last_login_proxy_ip=last_login_proxy_ip,
         )
 
-    async def update_login_proxy(self, account: CollectorAccount, login_proxy_id: int | None) -> CollectorAccount:
+    async def update_account_proxy(self, account: CollectorAccount, proxy_id: int | None) -> CollectorAccount:
         metadata = dict(account.metadata_json or {})
-        metadata["login_proxy_changed_requires_relogin"] = True
+        metadata["account_proxy_changed_at"] = datetime.now(timezone.utc).isoformat()
         metadata.pop("login_proxy_missing", None)
         metadata.pop("login_proxy_missing_reason", None)
+        metadata.pop("login_proxy_changed_requires_relogin", None)
         return await self.repo.update(
             account,
-            login_proxy_id=login_proxy_id,
+            login_proxy_id=proxy_id,
             login_proxy_locked=True,
             last_login_proxy_ip=None,
             login_proxy_changed_at=datetime.now(timezone.utc),
-            credentials={},
             metadata_json=metadata,
-            status=CollectorAccountStatus.ERROR,
-            health_status=CollectorHealthStatus.INVALID,
-            risk_reason="登录代理已变更，需要重新扫码登录",
-            last_error_category="login_proxy_changed",
         )
+
+    async def update_login_proxy(self, account: CollectorAccount, login_proxy_id: int | None) -> CollectorAccount:
+        return await self.update_account_proxy(account, login_proxy_id)
 
     async def mark_health(
         self,

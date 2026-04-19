@@ -12,7 +12,7 @@ from app.api.image import _validate_image_url
 from app.core.dependencies import get_current_user
 from app.main import app
 from app.models.fetch_job import FetchJobType
-from app.models.proxy import Proxy, ServiceType
+from app.models.proxy import Proxy, ProxyServiceKey, ServiceType
 from app.models.user import UserRole
 from app.services.monitoring_source_service import MonitoringSourceService
 from app.services.parser_service import ParserService
@@ -154,6 +154,7 @@ async def test_proxy_failure_sets_cooldown_and_pool_skips_it(test_db: AsyncSessi
     await test_db.refresh(proxy)
 
     service = ProxyService(test_db)
+    await service.replace_service_bindings(proxy, [ProxyServiceKey.MP_DETAIL])
     await service.mark_proxy_failure(proxy, "captcha", cooldown_seconds=60)
     await test_db.refresh(proxy)
 

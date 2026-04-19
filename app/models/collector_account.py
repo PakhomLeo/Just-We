@@ -116,3 +116,8 @@ class CollectorAccount(Base, TimestampMixin):
 
     owner: Mapped["User"] = relationship("User")
     login_proxy: Mapped["Proxy | None"] = relationship("Proxy")
+
+    @property
+    def bound_proxy_id(self) -> int | None:
+        """Compatibility alias for the account-level proxy binding."""
+        return self.login_proxy_id

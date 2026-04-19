@@ -3,7 +3,7 @@
     title="文章列表"
     subtitle="按公众号、AI 状态、内容类型、目标命中和标题关键词筛选文章。"
     watermark="ARTICLES"
-    action-rail="文章列表功能：搜索 / 按公众号筛选 / AI 状态筛选 / 目标命中筛选 / 打开详情 / 打开原文 / 重跑 AI"
+    action-rail="文章列表功能：搜索 / 按公众号筛选 / AI 状态筛选 / 目标命中筛选 / 打开详情 / 打开原文 / 重跑 AI / 删除文章"
   >
     <template #header-actions>
       <div class="v2-page-actions">
@@ -47,7 +47,7 @@
       <div v-else v-loading="loading" class="article-list">
         <article v-for="article in displayArticles" :key="article.id" class="article-card">
           <div class="article-main">
-            <div>
+            <div class="article-copy">
               <h3 @click="router.push(`/articles/${article.id}`)">{{ article.title }}</h3>
               <p>{{ article.account_name || article.author || '-' }} · {{ formatDateTime(article.published_at) }}</p>
               <div class="pill-line">
@@ -61,6 +61,7 @@
               <el-button size="small" @click="router.push(`/articles/${article.id}`)">详情</el-button>
               <el-button size="small" :disabled="!article.url" @click="openUrl(article.url)">原文</el-button>
               <el-button size="small" type="primary" :loading="reanalyzing[article.id]" @click="reanalyze(article)">重跑 AI</el-button>
+              <el-button size="small" type="danger" plain :loading="deleting[article.id]" @click="removeArticle(article)">删除</el-button>
             </div>
           </div>
         </article>
@@ -83,12 +84,12 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import V2Empty from '@/components/v2/V2Empty.vue'
 import V2Page from '@/components/v2/V2Page.vue'
 import V2Section from '@/components/v2/V2Section.vue'
 import V2StatusPill from '@/components/v2/V2StatusPill.vue'
-import { getArticles, reanalyzeArticleAI } from '@/api/articles'
+import { deleteArticle, getArticles, reanalyzeArticleAI } from '@/api/articles'
 import { getMonitoredAccounts } from '@/api/monitoredAccounts'
 import { formatDateTime } from './helpers'
 
@@ -107,6 +108,7 @@ const targetMatch = ref('')
 const aiStatus = ref('')
 const contentType = ref('')
 const reanalyzing = ref({})
+const deleting = ref({})
 
 const displayArticles = computed(() => articles.value.filter(item => {
   if (searchQuery.value && !String(item.title || '').toLowerCase().includes(searchQuery.value.toLowerCase())) return false
@@ -173,6 +175,18 @@ async function reanalyze(article) {
   }
 }
 
+async function removeArticle(article) {
+  await ElMessageBox.confirm(`确定删除文章“${article.title || article.id}”吗？`, '删除确认', { type: 'warning' })
+  deleting.value = { ...deleting.value, [article.id]: true }
+  try {
+    await deleteArticle(article.id)
+    ElMessage.success('文章已删除')
+    await loadArticles()
+  } finally {
+    deleting.value = { ...deleting.value, [article.id]: false }
+  }
+}
+
 function openUrl(url) {
   if (url) window.open(url, '_blank', 'noopener,noreferrer')
 }
@@ -208,11 +222,21 @@ function contentTypeLabel(value) {
   justify-content: space-between;
   gap: 22px;
 
+  .article-copy {
+    min-width: 0;
+    flex: 1;
+  }
+
   h3 {
     margin: 0 0 8px;
     font-size: 20px;
     font-weight: 950;
     cursor: pointer;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    overflow-wrap: anywhere;
   }
 
   p {
@@ -220,6 +244,11 @@ function contentTypeLabel(value) {
     color: $v2-muted;
     font-weight: 700;
   }
+}
+
+.article-main > .v2-button-row {
+  flex-shrink: 0;
+  justify-content: flex-end;
 }
 
 .pill-line {

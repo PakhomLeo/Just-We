@@ -217,11 +217,7 @@ FastAPI 应用入口在 `app/main.py`。启动时会执行：
 
 `proxy_service_bindings` 保存代理适用于哪些业务服务：
 
-- `mp_admin_login`
-- `mp_list`
 - `mp_detail`
-- `weread_login`
-- `weread_list`
 - `weread_detail`
 - `image_proxy`
 - `ai`
@@ -232,7 +228,9 @@ FastAPI 应用入口在 `app/main.py`。启动时会执行：
 - 不同服务对代理质量要求不同，例如登录更需要稳定出口，文章详情抓取更关注吞吐。
 - 绑定表可以表达优先级和启停状态，比单字段更灵活。
 
-旧的 `service_type` 仍保留为兼容字段，新逻辑优先使用 service binding。
+代理策略采用直连优先模型：没有显式绑定时所有服务都直接请求；绑定代理后按优先级尝试，失败会冷却并切换下一个代理，全部失败后仍回退直连。旧的 `service_type` 仍保留为兼容字段，但不会再自动变成服务绑定。
+
+登录和列表链路不再使用全局多代理池，而是使用抓取账号自己的单个账号代理。账号代理复用 `collector_accounts.login_proxy_id` 存储，未绑定时直连；绑定后登录和列表共用该代理，解除绑定或删除代理不会清空账号凭证。
 
 ### 4.6 抓取任务
 

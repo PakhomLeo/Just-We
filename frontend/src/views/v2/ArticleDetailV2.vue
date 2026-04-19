@@ -44,7 +44,18 @@
               <div class="plain-content">{{ article.content || '暂无正文内容' }}</div>
             </el-tab-pane>
             <el-tab-pane label="原始载荷" name="payload">
-              <pre class="v2-json">{{ jsonText({ source_payload: article.source_payload, raw_content: article.raw_content, metadata_json: article.metadata_json }) }}</pre>
+              <div v-if="contentMode === 'payload'" class="payload-panel">
+                <pre class="v2-json">{{ payloadJson }}</pre>
+                <div class="raw-toolbar">
+                  <span>raw_content：{{ rawContentSize }}</span>
+                  <div class="v2-button-row">
+                    <el-button size="small" :disabled="!article.raw_content" @click="rawPreviewLoaded = true">加载预览</el-button>
+                    <el-button size="small" :disabled="!article.raw_content" @click="copyRawContent">复制全文</el-button>
+                    <el-button size="small" :disabled="!article.raw_content" @click="downloadRawContent">下载 HTML</el-button>
+                  </div>
+                </div>
+                <pre v-if="rawPreviewLoaded" class="raw-preview">{{ rawPreview }}</pre>
+              </div>
             </el-tab-pane>
           </el-tabs>
         </V2Section>
@@ -88,7 +99,7 @@ import V2Page from '@/components/v2/V2Page.vue'
 import V2Section from '@/components/v2/V2Section.vue'
 import V2StatusPill from '@/components/v2/V2StatusPill.vue'
 import { getArticle, reanalyzeArticleAI } from '@/api/articles'
-import { formatDateTime, formatPercent, jsonText } from './helpers'
+import { formatDateTime, formatPercent } from './helpers'
 
 const route = useRoute()
 const router = useRouter()
@@ -96,6 +107,7 @@ const article = ref(null)
 const loading = ref(false)
 const reanalyzing = ref(false)
 const contentMode = ref('rich')
+const rawPreviewLoaded = ref(false)
 
 const displayImages = computed(() => article.value?.images?.length ? article.value.images : (article.value?.original_images || []))
 const aiStages = computed(() => [
@@ -105,6 +117,27 @@ const aiStages = computed(() => [
   { key: 'combined', label: '合并结果', completed: Boolean(article.value?.ai_combined_analysis || article.value?.ai_judgment) }
 ])
 const completedAIStageCount = computed(() => aiStages.value.filter(stage => stage.completed).length)
+const payloadJson = computed(() => JSON.stringify({
+  source_payload: article.value?.source_payload || null,
+  metadata_json: article.value?.metadata_json || null,
+  raw_content: {
+    loaded: Boolean(article.value?.raw_content),
+    length: article.value?.raw_content?.length || 0,
+    preview_loaded: rawPreviewLoaded.value
+  }
+}, null, 2))
+const rawContentSize = computed(() => {
+  const length = article.value?.raw_content?.length || 0
+  if (!length) return '无'
+  if (length < 1024) return `${length} B`
+  if (length < 1024 * 1024) return `${(length / 1024).toFixed(1)} KB`
+  return `${(length / 1024 / 1024).toFixed(2)} MB`
+})
+const rawPreview = computed(() => {
+  const content = article.value?.raw_content || ''
+  if (content.length <= 50000) return content
+  return `${content.slice(0, 50000)}\n\n... 已截断预览，完整内容请复制或下载。`
+})
 
 onMounted(() => {
   loadArticle()
@@ -132,6 +165,23 @@ async function reanalyze() {
   } finally {
     reanalyzing.value = false
   }
+}
+
+async function copyRawContent() {
+  if (!article.value?.raw_content) return
+  await navigator.clipboard.writeText(article.value.raw_content)
+  ElMessage.success('原始内容已复制')
+}
+
+function downloadRawContent() {
+  if (!article.value?.raw_content) return
+  const blob = new Blob([article.value.raw_content], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `article-${article.value.id}-raw.html`
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 function openUrl(url) {
@@ -209,6 +259,34 @@ function contentTypeLabel(value) {
 
 .plain-content {
   white-space: pre-wrap;
+}
+
+.payload-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.raw-toolbar {
+  border-radius: 18px;
+  background: $v2-card-soft;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-weight: 900;
+  color: $v2-muted;
+}
+
+.raw-preview {
+  max-height: 420px;
+  overflow: auto;
+  border-radius: 18px;
+  background: $v2-card-soft;
+  padding: 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .ai-flow {

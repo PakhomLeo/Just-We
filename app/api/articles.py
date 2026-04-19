@@ -155,6 +155,22 @@ async def get_article(
     return ArticleResponse.model_validate(article)
 
 
+@router.delete("/{article_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_article(
+    article_id: int,
+    db: DbSession,
+    current_user: CurrentUser,
+):
+    """Delete a visible article."""
+    article_service = ArticleService(db)
+    deleted = await article_service.delete_visible_article(article_id, current_user)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Article {article_id} not found",
+        )
+
+
 @router.post("/{article_id}/reanalyze-ai", response_model=ArticleResponse)
 async def reanalyze_article_ai(
     article_id: int,

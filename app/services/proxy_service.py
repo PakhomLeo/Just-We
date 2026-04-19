@@ -53,7 +53,7 @@ class ProxyService:
     async def get_proxy_for_service(
         self,
         service_type: ServiceType,
-    ) -> Proxy:
+    ) -> Proxy | None:
         """Get a proxy for a specific service type."""
         return await self.select_proxy(LEGACY_SERVICE_TO_PROXY_SERVICE[service_type])
 
@@ -166,16 +166,6 @@ class ProxyService:
 
     async def get_proxy_pool_for_service_key(self, service_key: ProxyServiceKey) -> list[Proxy]:
         proxies = await self.proxy_repo.get_proxies_for_service_key(service_key, active_only=True)
-        if not proxies:
-            legacy_types = [
-                service_type
-                for service_type, mapped_key in LEGACY_SERVICE_TO_PROXY_SERVICE.items()
-                if mapped_key == service_key
-            ]
-            legacy: list[Proxy] = []
-            for service_type in legacy_types:
-                legacy.extend(await self.proxy_repo.get_by_service_type(service_type, active_only=True))
-            proxies = legacy
         min_success_rate = self._min_success_rate()
         filtered = [proxy for proxy in proxies if (proxy.success_rate or 0) >= min_success_rate]
         # Priority/order comes from binding; success rate is only used as a light tiebreaker.
@@ -186,16 +176,11 @@ class ProxyService:
         service_key: ProxyServiceKey,
         account_id: int | None = None,
         purpose: str | None = None,
-    ) -> Proxy:
+    ) -> Proxy | None:
         """Select a proxy for a business service, using fixed login or round-robin rules."""
-        if service_key == ProxyServiceKey.AI:
-            proxies = await self.get_proxy_pool_for_service_key(service_key)
-            if not proxies:
-                raise ProxyNotAvailableException(service_key.value)
-        else:
-            proxies = await self.get_proxy_pool_for_service_key(service_key)
-            if not proxies:
-                raise ProxyNotAvailableException(service_key.value)
+        proxies = await self.get_proxy_pool_for_service_key(service_key)
+        if not proxies:
+            return None
 
         fixed = [proxy for proxy in proxies if proxy.rotation_mode == ProxyRotationMode.FIXED]
         if service_key in LOGIN_SERVICE_KEYS and fixed:
@@ -266,7 +251,7 @@ class ProxyService:
             is_active=True,
             success_rate=100.0,
         )
-        keys = service_keys if service_keys is not None else [LEGACY_SERVICE_TO_PROXY_SERVICE[service_type]]
+        keys = service_keys if service_keys is not None else []
         await self.replace_service_bindings(proxy, keys)
         return proxy
 
@@ -297,24 +282,15 @@ class ProxyService:
             raise ProxyNotAvailableException(f"proxy_id={proxy_id}")
         from sqlalchemy import Select
 
-        from app.models.collector_account import (
-            CollectorAccount,
-            CollectorAccountStatus,
-            CollectorHealthStatus,
-        )
+        from app.models.collector_account import CollectorAccount
 
         result = await self.db.execute(Select(CollectorAccount).where(CollectorAccount.login_proxy_id == proxy_id))
         accounts = list(result.scalars().all())
         for account in accounts:
             metadata = dict(account.metadata_json or {})
-            metadata["login_proxy_missing"] = True
-            metadata["login_proxy_missing_reason"] = "绑定登录代理已被删除，需要重新绑定并重新登录"
+            metadata["account_proxy_removed"] = True
+            metadata["account_proxy_removed_reason"] = "绑定代理已被删除，后续请求将恢复直连"
             account.login_proxy_id = None
-            account.status = CollectorAccountStatus.ERROR
-            account.health_status = CollectorHealthStatus.INVALID
-            account.risk_reason = "绑定登录代理已被删除，需要重新绑定并重新登录"
-            account.last_error_category = "login_proxy_missing"
-            account.credentials = {}
             account.metadata_json = metadata
         await self.db.flush()
         await self.proxy_repo.delete(proxy)
@@ -398,8 +374,7 @@ class ProxyService:
         )
         by_service: dict[str, dict[str, Any]] = {}
         for proxy in proxies:
-            keys = proxy.service_keys or [LEGACY_SERVICE_TO_PROXY_SERVICE.get(proxy.service_type, ProxyServiceKey.MP_DETAIL)]
-            for service_key in keys:
+            for service_key in proxy.service_keys:
                 key = service_key.value
                 item = by_service.setdefault(
                     key,

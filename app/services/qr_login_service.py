@@ -33,21 +33,22 @@ class QRLoginService:
         self.expire_seconds = settings.qr_code_expire_seconds
 
     async def generate(self, request: QRGenerateRequest, current_user) -> QRGenerateResponse:
-        login_proxy_id = request.login_proxy_id
+        login_proxy_id = request.proxy_id if isinstance(request.proxy_id, int) else None
         proxy_url = None
-        if request.type == CollectorAccountType.MP_ADMIN:
-            if login_proxy_id is None:
-                raise ValueError("公众号管理员登录必须先选择一个兼容的长期登录代理")
+        if login_proxy_id is not None:
             proxy_service = ProxyService(self.db)
             from app.repositories.proxy_repo import ProxyRepository
 
             proxy = await ProxyRepository(self.db).get_by_id(login_proxy_id)
             if proxy is None:
-                raise ValueError("所选登录代理不存在")
-            if ProxyServiceKey.MP_ADMIN_LOGIN not in proxy_service.compatible_service_keys(proxy):
-                raise ValueError("所选代理类型不能用于公众号管理员登录")
-            if ProxyServiceKey.MP_ADMIN_LOGIN not in proxy.service_keys:
-                await proxy_service.replace_service_bindings(proxy, [*proxy.service_keys, ProxyServiceKey.MP_ADMIN_LOGIN])
+                raise ValueError("所选账号代理不存在")
+            service_key = (
+                ProxyServiceKey.WEREAD_LOGIN
+                if request.type == CollectorAccountType.WEREAD
+                else ProxyServiceKey.MP_ADMIN_LOGIN
+            )
+            if service_key not in proxy_service.compatible_service_keys(proxy):
+                raise ValueError("所选代理类型不能用于该账号登录/列表")
             proxy_url = proxy.proxy_url
         provider = self._get_provider(request.type, proxy_url)
         provider_result = await provider.generate()
@@ -80,6 +81,7 @@ class QRLoginService:
             ticket=ticket,
             expire_at=provider_result.expire_at,
             provider=provider.provider_name,
+            proxy_id=login_proxy_id,
             login_proxy_id=login_proxy_id,
         )
 

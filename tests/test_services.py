@@ -34,7 +34,7 @@ from app.models.notification import Notification
 from app.models.proxy import Proxy, ProxyKind, ProxyRotationMode, ProxyServiceKey, ServiceType
 from app.models.system_config import NotificationEmailConfig
 from app.models.user import User
-from app.core.exceptions import FetchFailedException, ProxyNotAvailableException
+from app.core.exceptions import FetchFailedException
 from app.services.health_service import HealthCheckService
 
 
@@ -126,23 +126,24 @@ class TestProxyService:
         assert proxy.host == "192.168.1.1"
         assert proxy.port == 3128
         assert proxy.is_active is True
+        assert proxy.service_keys == []
 
     @pytest.mark.asyncio
     async def test_get_proxy_for_service(self, test_db: AsyncSession, mock_proxy: Proxy):
-        """Test getting proxy for service type."""
+        """Service proxy lookup uses explicit bindings, not legacy service_type."""
         service = ProxyService(test_db)
+        await service.replace_service_bindings(mock_proxy, [ProxyServiceKey.MP_DETAIL])
         proxy = await service.get_proxy_for_service(ServiceType.FETCH)
 
         assert proxy is not None
-        assert proxy.service_type == ServiceType.FETCH
+        assert proxy.id == mock_proxy.id
 
     @pytest.mark.asyncio
     async def test_get_proxy_for_service_not_found(self, test_db: AsyncSession):
-        """Test getting proxy when none available."""
+        """Missing service proxy means direct connection rather than an error."""
         service = ProxyService(test_db)
 
-        with pytest.raises(ProxyNotAvailableException):
-            await service.get_proxy_for_service(ServiceType.AI)
+        assert await service.get_proxy_for_service(ServiceType.AI) is None
 
     @pytest.mark.asyncio
     async def test_proxy_service_bindings_validate_compatibility(self, test_db: AsyncSession):
@@ -730,6 +731,9 @@ class TestFetcherService:
         )
         test_db.add_all([first_proxy, second_proxy])
         await test_db.flush()
+        proxy_service = ProxyService(test_db)
+        await proxy_service.replace_service_bindings(first_proxy, [ProxyServiceKey.MP_DETAIL])
+        await proxy_service.replace_service_bindings(second_proxy, [ProxyServiceKey.MP_DETAIL])
 
         fetcher = FetcherService(test_db)
         collector = CollectorAccount(

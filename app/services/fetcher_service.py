@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.exceptions import FetchFailedException, ProxyNotAvailableException
+from app.core.exceptions import FetchFailedException
 from app.models.collector_account import CollectorAccount, CollectorAccountType
 from app.models.monitored_account import MonitoredAccount
 from app.models.proxy import Proxy, ProxyServiceKey
@@ -966,22 +966,32 @@ class FetcherService:
             CollectorAccountType.WEREAD: ProxyServiceKey.WEREAD_LIST,
             CollectorAccountType.MP_ADMIN: ProxyServiceKey.MP_LIST,
         }
-        try:
-            proxy_model = await self.proxy_service.select_proxy(mapping[mode])
-            return proxy_model.proxy_url
-        except ProxyNotAvailableException:
+        proxy_model = await self.proxy_service.select_proxy(mapping[mode])
+        return proxy_model.proxy_url if proxy_model else None
+
+    async def get_account_proxy(self, collector_account: CollectorAccount) -> Proxy | None:
+        if not collector_account.login_proxy_id:
             return None
+        from app.repositories.proxy_repo import ProxyRepository
+
+        proxy = await ProxyRepository(self.db).get_by_id(collector_account.login_proxy_id)
+        if proxy is None or not proxy.is_active:
+            return None
+        return proxy
+
+    async def get_account_proxy_url(self, collector_account: CollectorAccount) -> str | None:
+        proxy = await self.get_account_proxy(collector_account)
+        if proxy is None:
+            return None
+        return proxy.proxy_url
 
     async def get_detail_proxy_for_mode(self, mode: CollectorAccountType) -> str | None:
         mapping = {
             CollectorAccountType.WEREAD: ProxyServiceKey.WEREAD_DETAIL,
             CollectorAccountType.MP_ADMIN: ProxyServiceKey.MP_DETAIL,
         }
-        try:
-            proxy_model = await self.proxy_service.select_proxy(mapping[mode])
-        except Exception:
-            return None
-        return proxy_model.proxy_url
+        proxy_model = await self.proxy_service.select_proxy(mapping[mode])
+        return proxy_model.proxy_url if proxy_model else None
 
     async def fetch_updates(
         self,
@@ -997,10 +1007,22 @@ class FetcherService:
                     raw_content=f"<html><body><h1>{monitored_account.name}</h1><p>mock content</p></body></html>",
                 )
             ]
-        proxy_url = await self.get_proxy_for_mode(collector_account.account_type)
-        if collector_account.account_type == CollectorAccountType.WEREAD:
-            return await self.weread_fetcher.fetch_updates(monitored_account, collector_account, proxy_url)
-        return await self.mp_fetcher.fetch_updates(monitored_account, collector_account, proxy_url)
+        proxy = await self.get_account_proxy(collector_account)
+        fetcher = self.weread_fetcher if collector_account.account_type == CollectorAccountType.WEREAD else self.mp_fetcher
+        if proxy is None:
+            return await fetcher.fetch_updates(monitored_account, collector_account, None)
+        try:
+            updates = await fetcher.fetch_updates(monitored_account, collector_account, proxy.proxy_url)
+            await self.proxy_service.mark_proxy_success(proxy)
+            return updates
+        except FetchFailedException as exc:
+            if exc.details.get("category") in {FETCH_CATEGORY_CONFIGURATION, FETCH_CATEGORY_CREDENTIALS}:
+                raise
+            await self.proxy_service.mark_proxy_failure(proxy, str(exc), cooldown_seconds=120)
+            return await fetcher.fetch_updates(monitored_account, collector_account, None)
+        except Exception as exc:
+            await self.proxy_service.mark_proxy_failure(proxy, str(exc), cooldown_seconds=120)
+            return await fetcher.fetch_updates(monitored_account, collector_account, None)
 
     async def fetch_article_detail(
         self,

@@ -19,7 +19,7 @@ from app.models.article import Article
 from app.models.collector_account import CollectorHealthStatus
 from app.models.log import OperationLog
 from app.models.notification import Notification
-from app.models.proxy import Proxy
+from app.models.proxy import Proxy, ProxyKind
 
 
 class TestAuthAPI:
@@ -312,7 +312,7 @@ class TestMonitoredAndCollectorIsolationAPI:
         test_db: AsyncSession,
         mock_user: User,
     ):
-        mock_user.role = UserRole.OPERATOR
+        mock_user.role = UserRole.ADMIN
 
         async def override_get_db():
             yield test_db
@@ -562,6 +562,33 @@ class TestProxyAPI:
         app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
+    async def test_delete_visible_article(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+        mock_monitored_article: Article,
+    ):
+        """Users can delete articles visible through their monitored accounts."""
+        mock_user.role = UserRole.VIEWER
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            delete_response = await client.delete(f"/api/articles/{mock_monitored_article.id}")
+            get_response = await client.get(f"/api/articles/{mock_monitored_article.id}")
+
+        assert delete_response.status_code == 204
+        assert get_response.status_code == 404
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
     async def test_create_proxy_persists_integer_port(
         self,
         test_db: AsyncSession,
@@ -590,6 +617,7 @@ class TestProxyAPI:
         assert data["host"] == "127.0.0.1"
         assert data["port"] == 8899
         assert data["service_type"] == "mp_list"
+        assert data["service_keys"] == []
         app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
@@ -636,6 +664,43 @@ class TestProxyAPI:
         assert set(services_response.json()["service_keys"]) == {"mp_admin_login", "mp_list", "mp_detail"}
         assert any(item["id"] == proxy_id for item in list_response.json()["items"])
         assert invalid_response.status_code == 400
+        app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_collector_account_proxy_bind_unbind_and_deleted_proxy_falls_back_to_direct(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+        mock_collector_account,
+        mock_proxy: Proxy,
+    ):
+        """Account proxy binding is optional and deleting the proxy does not clear credentials."""
+        mock_user.role = UserRole.ADMIN
+        mock_proxy.proxy_kind = ProxyKind.ISP_STATIC
+        await test_db.commit()
+
+        async def override_get_db():
+            yield test_db
+
+        def override_get_current_user():
+            return mock_user
+
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[get_current_user] = override_get_current_user
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            bind_response = await client.put(
+                f"/api/collector-accounts/{mock_collector_account.id}/proxy",
+                json={"proxy_id": mock_proxy.id},
+            )
+            delete_response = await client.delete(f"/api/proxies/{mock_proxy.id}")
+
+        await test_db.refresh(mock_collector_account)
+        assert bind_response.status_code == 200
+        assert bind_response.json()["bound_proxy_id"] == mock_proxy.id
+        assert delete_response.status_code == 204
+        assert mock_collector_account.login_proxy_id is None
+        assert mock_collector_account.credentials == {"token": "primary-token", "cookies": {}}
         app.dependency_overrides.clear()
 
 

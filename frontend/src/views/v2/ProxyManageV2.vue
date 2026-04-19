@@ -1,9 +1,9 @@
 <template>
   <V2Page
     title="代理管理"
-    subtitle="一个代理可绑定多个兼容服务；登录代理稳定，详情代理可轮换。"
+    subtitle="代理只在手动绑定服务后使用；账号登录/列表代理请在抓取账号页绑定。"
     watermark="PROXY"
-    action-rail="代理功能：新增代理 / 批量导入 / 测试代理 / 编辑服务绑定 / 展开使用服务 / 冷却与恢复 / 删除影响提示"
+    action-rail="代理功能：新增代理 / 批量导入 / 测试代理 / 编辑详情服务绑定 / 冷却与恢复 / 删除影响提示"
   >
     <template #header-actions>
       <div class="v2-page-actions">
@@ -138,11 +138,7 @@ import { addProxy, bulkAddProxies, checkProxy, deleteProxy, getProxies, getProxy
 import { formatDateTime } from './helpers'
 
 const services = [
-  { key: 'mp_admin_login', label: '公众号登录' },
-  { key: 'mp_list', label: '公众号列表' },
   { key: 'mp_detail', label: '公众号详情' },
-  { key: 'weread_login', label: 'WeRead 登录' },
-  { key: 'weread_list', label: 'WeRead 列表' },
   { key: 'weread_detail', label: 'WeRead 详情' },
   { key: 'image_proxy', label: '图片代理' },
   { key: 'ai', label: 'AI 请求' }
@@ -158,7 +154,7 @@ const showCreate = ref(false)
 const showBulk = ref(false)
 const bulkText = ref('')
 const bulkKind = ref('residential_rotating')
-const bulkServices = ref(['mp_detail'])
+const bulkServices = ref([])
 const serviceDrafts = ref({})
 const serviceSaving = ref({})
 const rotationModes = [
@@ -168,7 +164,7 @@ const rotationModes = [
   { label: '每次请求', value: 'per_request' },
   { label: '服务商自动', value: 'provider_auto' }
 ]
-const form = reactive({ host: '', port: 8080, username: '', password: '', proxy_kind: 'residential_static', rotation_mode: 'fixed', sticky_ttl_seconds: 0, provider_name: '', notes: '', service_keys: ['mp_detail'] })
+const form = reactive({ host: '', port: 8080, username: '', password: '', proxy_kind: 'residential_static', rotation_mode: 'fixed', sticky_ttl_seconds: 0, provider_name: '', notes: '', service_keys: [] })
 const openBulkDialog = () => { showBulk.value = true }
 
 onMounted(() => {
@@ -260,7 +256,7 @@ async function toggleProxy(proxy, value) {
 }
 
 async function handleDelete(proxy) {
-  await ElMessageBox.confirm(`删除代理 ${proxy.host}:${proxy.port} 可能影响已锁定登录账号。确认删除？`, '删除影响提示', { type: 'warning' })
+  await ElMessageBox.confirm(`删除代理 ${proxy.host}:${proxy.port} 后，已绑定账号会恢复直连。确认删除？`, '删除影响提示', { type: 'warning' })
   await deleteProxy(proxy.id)
   await loadData()
 }
@@ -271,11 +267,9 @@ function compatibleServices(proxy) {
 
 function incompatibleReason(proxy, service) {
   const kind = proxy.proxy_kind
-  const sticky = Number(proxy.sticky_ttl_seconds || 0)
   if (kind === 'datacenter' && service.key !== 'ai') return '数据中心代理不用于微信链路'
   if (['residential_rotating', 'mobile_rotating', 'custom_gateway'].includes(kind)) {
-    if (['mp_admin_login', 'weread_login'].includes(service.key)) return '登录需要长期稳定代理'
-    if (['mp_list', 'weread_list'].includes(service.key) && sticky < 300) return '列表接口需要至少 300 秒粘性'
+    if (service.key === 'ai') return 'AI 请求建议使用数据中心或静态代理'
   }
   if (['isp_static', 'residential_static', 'mobile_static'].includes(kind) && ['image_proxy', 'ai'].includes(service.key)) return ''
   return ''

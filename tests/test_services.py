@@ -704,6 +704,9 @@ class TestFetcherService:
         assert len(client.calls) == 2
         assert client.calls[0][1]["params"]["begin"] == 0
         assert client.calls[1][1]["params"]["begin"] == 2
+        assert "action" not in client.calls[0][1]["params"]
+        assert client.calls[0][1]["params"]["search_field"] == "null"
+        assert client.calls[0][1]["params"]["ajax"] == 1
 
     @pytest.mark.asyncio
     async def test_mp_fetcher_requires_token_before_list_request(self, test_db: AsyncSession):

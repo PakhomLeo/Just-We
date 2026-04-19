@@ -1433,6 +1433,87 @@ class TestCollectorHealthService:
         assert reason == "凭证即将过期"
         assert expires_at == account.expires_at
 
+    @pytest.mark.asyncio
+    async def test_weread_platform_404_probes_are_not_marked_normal(self):
+        service = HealthCheckService()
+        account = CollectorAccount(
+            owner_user_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            account_type=CollectorAccountType.WEREAD,
+            display_name="Weread",
+            credentials={"token": "token123"},
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={"provider": "weread_platform", "platform_url": "https://platform.example.com"},
+        )
+
+        class FakeResponse:
+            status_code = 404
+
+        class FakeClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def get(self, *args, **kwargs):
+                return FakeResponse()
+
+        with patch("app.services.health_service.httpx.AsyncClient", return_value=FakeClient()):
+            status, reason = await service._check_weread_collector(account)
+
+        assert status == CollectorHealthStatus.RESTRICTED
+        assert reason == "平台健康检查接口不可用"
+
+    @pytest.mark.asyncio
+    async def test_weread_platform_article_probe_reports_expired_token(self, test_db: AsyncSession, mock_user: User):
+        service = HealthCheckService()
+        account = CollectorAccount(
+            owner_user_id=mock_user.id,
+            account_type=CollectorAccountType.WEREAD,
+            display_name="Weread",
+            credentials={"token": "token123", "vid": "vid123"},
+            external_id="vid123",
+            status=CollectorAccountStatus.ACTIVE,
+            health_status=CollectorHealthStatus.NORMAL,
+            risk_status=RiskStatus.NORMAL,
+            metadata_json={"provider": "weread_platform", "platform_url": "https://platform.example.com"},
+        )
+        monitored = MonitoredAccount(
+            owner_user_id=mock_user.id,
+            biz="biz",
+            fakeid="fakeid",
+            name="Monitored",
+            source_url="https://mp.weixin.qq.com/s/test",
+            metadata_json={"weread_platform_mp_id": "MP_WXS_1"},
+            current_tier=3,
+            composite_score=50.0,
+            primary_fetch_mode=CollectorAccountType.WEREAD,
+            status=MonitoredAccountStatus.MONITORING,
+        )
+        test_db.add_all([account, monitored])
+        await test_db.commit()
+
+        class FakeResponse:
+            status_code = 401
+
+        class FakeClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def get(self, *args, **kwargs):
+                return FakeResponse()
+
+        with patch("app.services.health_service.httpx.AsyncClient", return_value=FakeClient()):
+            status, reason, _ = await service.check_collector_account_health(account, test_db)
+
+        assert status == CollectorHealthStatus.EXPIRED
+        assert reason == "平台令牌失效"
+
 
 class TestNotificationService:
     """Notification dispatch and de-duplication."""

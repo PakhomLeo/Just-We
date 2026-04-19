@@ -17,7 +17,7 @@ async def run_all_collector_health_checks() -> dict:
         accounts = await repo.get_visible_accounts(None)
         results = []
         for account in accounts:
-            health_status, reason, expires_at = await health_check_service.check_collector_account_health(account)
+            health_status, reason, expires_at = await health_check_service.check_collector_account_health(account, db)
             updated = await collector_service.mark_health(account, health_status, reason)
             if expires_at and reason == "凭证即将过期":
                 await notification_service.notify_collector_expiring_soon(updated, expires_at)

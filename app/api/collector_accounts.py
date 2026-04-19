@@ -85,7 +85,7 @@ async def health_check_collector(collector_account_id: int, db: DbSession, curre
     if account is None:
         raise HTTPException(status_code=404, detail="Collector account not found")
     notification_service = NotificationService(db)
-    health_status, reason, expires_at = await health_check_service.check_collector_account_health(account)
+    health_status, reason, expires_at = await health_check_service.check_collector_account_health(account, db)
     updated = await service.mark_health(account, health_status, reason)
     if expires_at and reason == "凭证即将过期":
         await notification_service.notify_collector_expiring_soon(updated, expires_at)

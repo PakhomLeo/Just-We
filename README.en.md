@@ -1,6 +1,6 @@
 # Just—We
 
-[![CI](https://github.com/PakhomLeo/Just—We/actions/workflows/ci.yml/badge.svg)](https://github.com/PakhomLeo/Just—We/actions/workflows/ci.yml)
+[![CI](https://github.com/PakhomLeo/Just-We/actions/workflows/ci.yml/badge.svg)](https://github.com/PakhomLeo/Just-We/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [中文](README.md) | English

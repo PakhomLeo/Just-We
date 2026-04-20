@@ -499,7 +499,15 @@ Dockerfile 使用多阶段构建：
 1. Node 阶段执行 `npm ci` 和 `npm run build`。
 2. Python runtime 阶段安装后端依赖。
 3. 复制 `frontend/dist` 到 runtime 镜像。
-4. 入口脚本等待 Postgres/Redis，初始化空库，执行 Alembic，再启动 Uvicorn。
+4. 复制发布版 `docker-compose.release.yml`，让用户可以直接从镜像读取部署模板。
+5. 入口脚本等待 Postgres/Redis，初始化空库，执行 Alembic，再启动 Uvicorn。
+
+项目保留两种 Compose 入口：
+
+- `docker-compose.yml`：面向源码目录，默认本地构建 `just-we:local`。
+- `docker-compose.release.yml`：面向发布镜像，固定使用 `ghcr.io/pakhomleo/just-we:latest`，可通过 `docker run ... cat /app/docker-compose.release.yml | docker compose -f - up -d` 直接部署。
+
+CI 在 main 分支通过后发布 `linux/amd64` 和 `linux/arm64` 镜像，标签包括 `latest`、当前版本号和 `main-<commit-sha>`。自托管用户默认使用 `latest`，需要固定版本时可改用版本标签。
 
 为什么需要空库初始化：
 

@@ -56,7 +56,21 @@ docs/        Deployment, configuration, design, and reference documentation
 
 ## Quick Start with Docker
 
-Docker Compose is the recommended way to try or self-host Just—We:
+Published multi-architecture image:
+
+```bash
+docker pull ghcr.io/pakhomleo/just-we:latest
+```
+
+Users can deploy the full `app + PostgreSQL + Redis` stack with one command.
+The command creates a deployment directory, writes `.env`, and reads the release
+Compose file from the image itself:
+
+```bash
+mkdir -p just-we && cd just-we && printf 'JUST_WE_JWT_SECRET_KEY=%s\nJUST_WE_DEFAULT_ADMIN_PASSWORD=admin123\n' "$(openssl rand -hex 32)" > .env && docker run --rm ghcr.io/pakhomleo/just-we:latest cat /app/docker-compose.release.yml | docker compose -p just-we -f - up -d
+```
+
+Inside a source checkout, Docker Compose can also build the app locally:
 
 ```bash
 docker compose up -d --build

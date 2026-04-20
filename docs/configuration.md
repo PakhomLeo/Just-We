@@ -3,7 +3,8 @@
 Just—We uses environment variables through `pydantic-settings`.
 
 - Local development: copy `.env.example` to `.env`.
-- Docker deployment: use the defaults in `docker-compose.yml`, or copy
+- Docker deployment: use the defaults in `docker-compose.yml` for source
+  builds, use `docker-compose.release.yml` for the published image, or copy
   `.env.docker.example` to `.env.docker` and pass it with `--env-file`.
   Docker override names are prefixed with `JUST_WE_*` so a local development
   `.env` file is not accidentally injected into Compose interpolation.

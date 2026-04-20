@@ -13,7 +13,32 @@ The default entry point is `http://localhost:8000`.
 - Docker Engine with Compose v2.
 - A host port `8000` available.
 
-## One-command Start
+## Published Image
+
+The published multi-architecture image is:
+
+```bash
+docker pull ghcr.io/pakhomleo/just-we:latest
+```
+
+For repeatable deployments, the image also contains
+`/app/docker-compose.release.yml`, a Compose file that references the published
+image instead of building from source.
+
+## One-command Start from Docker
+
+```bash
+mkdir -p just-we && cd just-we && printf 'JUST_WE_JWT_SECRET_KEY=%s\nJUST_WE_DEFAULT_ADMIN_PASSWORD=admin123\n' "$(openssl rand -hex 32)" > .env && docker run --rm ghcr.io/pakhomleo/just-we:latest cat /app/docker-compose.release.yml | docker compose -p just-we -f - up -d
+```
+
+This starts the app, PostgreSQL, and Redis with persistent Docker volumes. The
+generated `.env` keeps the same `JWT_SECRET_KEY` across restarts and upgrades.
+
+- `just-we_just-we-postgres`
+- `just-we_just-we-redis`
+- `just-we_just-we-media`
+
+## Source Checkout Start
 
 ```bash
 docker compose up -d --build
@@ -31,7 +56,8 @@ Default bootstrap account:
 - Password: `admin123`
 
 Change the password after first login. For any public deployment, set a strong
-`JWT_SECRET_KEY`.
+`JWT_SECRET_KEY` and set `JUST_WE_DEFAULT_ADMIN_PASSWORD` to a private value
+before first startup.
 
 ## Optional Environment Overrides
 
@@ -63,6 +89,15 @@ redis://redis:6379/0
 ```
 
 ## Upgrade
+
+For deployments created from the published image:
+
+```bash
+docker pull ghcr.io/pakhomleo/just-we:latest
+cd just-we && docker run --rm ghcr.io/pakhomleo/just-we:latest cat /app/docker-compose.release.yml | docker compose -p just-we -f - up -d
+```
+
+For source checkouts:
 
 ```bash
 git pull

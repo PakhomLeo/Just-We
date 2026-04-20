@@ -38,6 +38,7 @@ RUN uv sync --frozen --no-dev
 
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
+COPY docker-compose.release.yml ./docker-compose.release.yml
 
 RUN chmod +x ./docker-entrypoint.sh && mkdir -p /app/media
 

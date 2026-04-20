@@ -1,0 +1,69 @@
+services:
+  app:
+    image: ghcr.io/pakhomleo/just-we:latest
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: ${JUST_WE_APP_ENV:-production}
+      DEBUG: ${JUST_WE_DEBUG:-false}
+      DATABASE_URL: ${JUST_WE_DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/dynamicwepubmonitor}
+      DATABASE_ECHO: ${JUST_WE_DATABASE_ECHO:-false}
+      REDIS_URL: ${JUST_WE_REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET_KEY: ${JUST_WE_JWT_SECRET_KEY:-change-me-before-production}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JUST_WE_JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      MEDIA_ROOT: /app/media
+      MEDIA_URL_PREFIX: /media
+      FRONTEND_DIST_PATH: /app/frontend/dist
+      ENSURE_DEFAULT_ADMIN: ${JUST_WE_ENSURE_DEFAULT_ADMIN:-true}
+      DEFAULT_ADMIN_ALIAS: ${JUST_WE_DEFAULT_ADMIN_ALIAS:-admin}
+      DEFAULT_ADMIN_EMAIL: ${JUST_WE_DEFAULT_ADMIN_EMAIL:-admin@admin.com}
+      DEFAULT_ADMIN_PASSWORD: ${JUST_WE_DEFAULT_ADMIN_PASSWORD:-admin123}
+      LLM_API_URL: ${JUST_WE_LLM_API_URL:-https://api.example.com/v1/chat/completions}
+      LLM_API_KEY: ${JUST_WE_LLM_API_KEY:-}
+      LLM_MODEL: ${JUST_WE_LLM_MODEL:-gpt-4o}
+      WEREAD_PLATFORM_URL: ${JUST_WE_WEREAD_PLATFORM_URL:-}
+      WEREAD_PLATFORM_TIMEOUT_SECONDS: ${JUST_WE_WEREAD_PLATFORM_TIMEOUT_SECONDS:-30}
+      WEREAD_PLATFORM_EXPIRE_FAILURE_THRESHOLD: ${JUST_WE_WEREAD_PLATFORM_EXPIRE_FAILURE_THRESHOLD:-2}
+      WEREAD_PLATFORM_CREDENTIAL_COOLDOWN_MINUTES: ${JUST_WE_WEREAD_PLATFORM_CREDENTIAL_COOLDOWN_MINUTES:-60}
+      COLLECTOR_HEALTH_CHECK_HOUR: ${JUST_WE_COLLECTOR_HEALTH_CHECK_HOUR:-23}
+      COLLECTOR_HEALTH_CHECK_MINUTE: ${JUST_WE_COLLECTOR_HEALTH_CHECK_MINUTE:-30}
+    volumes:
+      - just-we-media:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dynamicwepubmonitor
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - just-we-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dynamicwepubmonitor"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - just-we-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  just-we-postgres:
+  just-we-redis:
+  just-we-media:

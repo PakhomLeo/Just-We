@@ -41,7 +41,19 @@ docs/        部署、配置、设计和项目参考文档
 
 ## Docker 快速开始
 
-推荐使用 Docker Compose 直接启动完整环境：
+已经发布的多架构镜像：
+
+```bash
+docker pull ghcr.io/pakhomleo/just-we:latest
+```
+
+其他用户可以直接用下面一条命令创建部署目录、生成 `.env`、从镜像中读取发布版 Compose，并启动 `app + PostgreSQL + Redis`：
+
+```bash
+mkdir -p just-we && cd just-we && printf 'JUST_WE_JWT_SECRET_KEY=%s\nJUST_WE_DEFAULT_ADMIN_PASSWORD=admin123\n' "$(openssl rand -hex 32)" > .env && docker run --rm ghcr.io/pakhomleo/just-we:latest cat /app/docker-compose.release.yml | docker compose -p just-we -f - up -d
+```
+
+如果你在本仓库源码目录内，也可以本地构建启动完整环境：
 
 ```bash
 docker compose up -d --build

@@ -87,8 +87,11 @@ class ImageDownloader:
             Local file path or None if download failed
         """
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, proxy=proxy)
+            client_kwargs = {"timeout": self.timeout}
+            if proxy:
+                client_kwargs["proxy"] = proxy
+            async with httpx.AsyncClient(**client_kwargs) as client:
+                response = await client.get(url)
                 response.raise_for_status()
 
                 # Check size

@@ -12,6 +12,7 @@ from app.schemas.article_export import (
     ArticleExportListResponse,
     ArticleExportRecordResponse,
 )
+from app.repositories.log_repo import LogRepository
 from app.services.article_export_service import ArticleExportService
 
 
@@ -52,6 +53,34 @@ async def create_article_export(
     current_user: CurrentUser,
 ):
     record = await ArticleExportService(db).create_export(payload, current_user)
+    if payload.scope == "account" and payload.monitored_account_id is not None:
+        await LogRepository(db).create_log(
+            user_id=current_user.id,
+            action="create_article_export",
+            target_type="monitored_account",
+            target_id=payload.monitored_account_id,
+            after_state={
+                "export_id": record.id,
+                "article_count": record.article_count,
+                "file_name": record.file_name,
+                "target_match": record.target_match,
+            },
+            detail=f"按监测对象导出 JSON：{record.file_name}",
+        )
+    await LogRepository(db).create_log(
+        user_id=current_user.id,
+        action="create_article_export",
+        target_type="article_export",
+        target_id=record.id,
+        after_state={
+            "scope": record.scope,
+            "monitored_account_id": payload.monitored_account_id,
+            "article_count": record.article_count,
+            "file_name": record.file_name,
+            "status": getattr(record.status, "value", record.status),
+        },
+        detail=f"生成文章 JSON 导出：{record.file_name}",
+    )
     return _record_response(record)
 
 

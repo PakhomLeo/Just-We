@@ -220,6 +220,23 @@ def test_mp_admin_login_helpers_parse_redirect_token_and_searchbiz_payload():
 
 
 @pytest.mark.asyncio
+async def test_mp_admin_profile_cookie_snapshot_tolerates_duplicate_names():
+    from app.services.qr_providers import MpAdminQRProvider
+
+    provider = MpAdminQRProvider()
+    client = httpx.AsyncClient()
+    client.cookies.set("rand_info", "first", domain="mp.weixin.qq.com")
+    client.cookies.set("rand_info", "second", domain=".mp.weixin.qq.com")
+
+    try:
+        cookies = provider._safe_cookie_dict(client)
+    finally:
+        await client.aclose()
+
+    assert cookies["rand_info"] in {"first", "second"}
+
+
+@pytest.mark.asyncio
 async def test_system_rate_limit_and_notification_policy_endpoints(test_db: AsyncSession, mock_user):
     mock_user.role = UserRole.ADMIN
 

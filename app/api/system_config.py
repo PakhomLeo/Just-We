@@ -1,5 +1,8 @@
 """System configuration API routes."""
 
+from time import perf_counter
+from types import SimpleNamespace
+
 from fastapi import APIRouter
 
 from app.core.dependencies import AdminUser, DbSession
@@ -7,6 +10,8 @@ from app.core.config import get_settings
 from app.models.user import UserRole
 from app.schemas.system_config import (
     AIConfigPayload,
+    AIConfigTestPayload,
+    AIConfigTestResponse,
     DefaultAdminPayload,
     DefaultAdminUpdatePayload,
     FetchPolicyPayload,
@@ -15,6 +20,7 @@ from app.schemas.system_config import (
     ProxyPolicyPayload,
     RateLimitPolicyPayload,
 )
+from app.services.ai_service import AIService
 from app.services.auth_service import AuthService
 from app.services.system_config_service import SystemConfigService
 
@@ -33,6 +39,57 @@ async def get_ai_config(db: DbSession, current_user: AdminUser):
 async def update_ai_config(payload: AIConfigPayload, db: DbSession, current_user: AdminUser):
     config = await SystemConfigService(db).update_ai_config(**payload.model_dump())
     return AIConfigPayload.model_validate(config, from_attributes=True)
+
+
+@router.post("/ai-config/test", response_model=AIConfigTestResponse)
+async def test_ai_config(payload: AIConfigTestPayload, db: DbSession, current_user: AdminUser):
+    """Test the supplied AI config with a dedicated connectivity payload."""
+    started_at = perf_counter()
+    service = AIService()
+    service.config = SimpleNamespace(**payload.config.model_dump())
+    if payload.stage == "text":
+        api_config = service._text_api_config()
+        prompt = (
+            'Just-We AI connectivity test. Return exactly one JSON object like '
+            '{"ok":true,"service":"text","message":"pong"}. Do not analyze any article.'
+        )
+        image_paths = None
+    else:
+        api_config = service._image_api_config()
+        prompt = (
+            'Just-We image AI connectivity test. The attached 16x16 PNG is a synthetic test fixture. '
+            'Return exactly one JSON object like {"ok":true,"service":"image","message":"pong"}.'
+        )
+        image_paths = [
+            "data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR4nGP4TyJgGNUwqmH4agAAr639H708R/EAAAAASUVORK5CYII="
+        ]
+    endpoint = service._normalize_chat_completions_url(str(api_config.get("api_url") or ""), str(api_config.get("model") or ""))
+    try:
+        result = await service._call_json_stage(
+            api_config=api_config,
+            prompt=prompt,
+            image_paths=image_paths,
+        )
+        return AIConfigTestResponse(
+            success=True,
+            stage=payload.stage,
+            status="success",
+            model=str(api_config.get("model") or ""),
+            endpoint=endpoint,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            result=result,
+        )
+    except Exception as exc:
+        return AIConfigTestResponse(
+            success=False,
+            stage=payload.stage,
+            status="failed",
+            model=str(api_config.get("model") or ""),
+            endpoint=endpoint,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            error=str(exc),
+        )
 
 
 @router.get("/fetch-policy", response_model=FetchPolicyPayload)

@@ -1,6 +1,6 @@
 """Schemas for system configurations."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -46,6 +46,22 @@ class AIConfigPayload(BaseModel):
     type_judgment_prompt: str = ""
     target_article_type: str = ""
     timeout_seconds: int = 60
+
+
+class AIConfigTestPayload(BaseModel):
+    stage: Literal["text", "image"]
+    config: AIConfigPayload
+
+
+class AIConfigTestResponse(BaseModel):
+    success: bool
+    stage: Literal["text", "image"]
+    status: str
+    model: str = ""
+    endpoint: str = ""
+    duration_ms: int = 0
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class FetchPolicyPayload(BaseModel):

@@ -7,6 +7,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -89,6 +90,47 @@ class ArticleAIAnalysisService:
             config["model"] = self.model_override
         return config
 
+    def _is_ark_model(self, model: str | None) -> bool:
+        return str(model or "").lower().startswith(("doubao-", "ep-"))
+
+    def _looks_like_image_url(self, api_url: str) -> bool:
+        parsed = urlparse(str(api_url or ""))
+        path = parsed.path.lower()
+        return path.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"))
+
+    def _normalize_chat_completions_url(self, api_url: str, model: str | None = None) -> str:
+        """Accept either an OpenAI-compatible base URL or a full chat completions endpoint."""
+        normalized = str(api_url or "").strip().rstrip("/")
+        if not normalized:
+            return normalized
+        parsed = urlparse(normalized)
+        if self._is_ark_model(model) and (
+            "ark-project.tos-" in parsed.netloc
+            or self._looks_like_image_url(normalized)
+            or parsed.netloc == "ark.cn-beijing.volces.com"
+        ):
+            return "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+        if normalized.endswith("/chat/completions"):
+            return normalized
+        if normalized.endswith("/v1"):
+            return f"{normalized}/chat/completions"
+        if normalized.endswith("/api/v3"):
+            return f"{normalized}/chat/completions"
+        return f"{normalized}/chat/completions"
+
+    def _is_api_configured(self, api_config: dict[str, Any]) -> bool:
+        api_url = str(api_config.get("api_url") or "")
+        api_key = str(api_config.get("api_key") or "")
+        placeholder_keys = {"test-key", "your-api-key"}
+        lowered_key = api_key.lower()
+        return (
+            bool(api_key)
+            and api_key not in placeholder_keys
+            and not lowered_key.startswith("your-")
+            and "api.example.com" not in api_url
+            and (not self._looks_like_image_url(api_url) or self._is_ark_model(str(api_config.get("model") or "")))
+        )
+
     def _json_constraint(self, *, type_judgment: bool = False) -> str:
         base = "只返回合法 JSON。不要 Markdown，不要代码块，不要解释性文字。"
         if type_judgment:
@@ -137,9 +179,7 @@ class ArticleAIAnalysisService:
     ) -> dict[str, Any]:
         if not api_config["enabled"]:
             raise AIAnalysisException(0, "AI stage is disabled")
-        api_url = str(api_config.get("api_url") or "")
-        api_key = str(api_config.get("api_key") or "")
-        if not api_key or "api.example.com" in api_url:
+        if not self._is_api_configured(api_config):
             raise AIAnalysisException(0, "AI API is not configured")
         if self.mock_mode:
             return {"choices": [{"message": {"content": json.dumps({"mock": True, "summary": prompt[:120]}, ensure_ascii=False)}}]}
@@ -148,27 +188,55 @@ class ArticleAIAnalysisService:
         if image_paths:
             content_parts: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
             for image_path in image_paths[:5]:
-                data_url = self._image_to_data_url(image_path)
-                if data_url:
-                    content_parts.append({"type": "image_url", "image_url": {"url": data_url}})
+                image_url = self._image_to_request_image_url(image_path)
+                if image_url:
+                    content_parts.append({"type": "image_url", "image_url": {"url": image_url}})
             messages = [{"role": "user", "content": content_parts}]
         else:
             messages = [{"role": "user", "content": prompt}]
 
-        async with httpx.AsyncClient(timeout=float(api_config["timeout"])) as client:
-            response = await client.post(
-                api_config["api_url"],
-                json={
-                    "model": api_config["model"],
-                    "messages": messages,
-                    "temperature": 0.1,
-                    "response_format": {"type": "json_object"},
-                },
-                headers={"Authorization": f"Bearer {api_config['api_key']}"},
-                proxy=proxy,
+        client_kwargs: dict[str, Any] = {"timeout": float(api_config["timeout"])}
+        if proxy:
+            client_kwargs["proxy"] = proxy
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            endpoint = self._normalize_chat_completions_url(
+                str(api_config["api_url"]),
+                str(api_config.get("model") or ""),
             )
-            response.raise_for_status()
-            return response.json()
+            payload = {
+                "model": api_config["model"],
+                "messages": messages,
+                "temperature": 1.0,
+                "response_format": {"type": "json_object"},
+            }
+            try:
+                response = await client.post(
+                    endpoint,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {api_config['api_key']}"},
+                )
+                if response.status_code == 400 and "response_format" in response.text:
+                    payload.pop("response_format", None)
+                    response = await client.post(
+                        endpoint,
+                        json=payload,
+                        headers={"Authorization": f"Bearer {api_config['api_key']}"},
+                    )
+                response.raise_for_status()
+                return response.json()
+            except httpx.TimeoutException as exc:
+                raise AIAnalysisException(0, f"AI request timed out after {api_config['timeout']} seconds") from exc
+            except httpx.HTTPStatusError as exc:
+                body = exc.response.text[:500] if exc.response is not None else ""
+                raise AIAnalysisException(0, f"AI API HTTP {exc.response.status_code}: {body}") from exc
+            except httpx.RequestError as exc:
+                raise AIAnalysisException(0, f"AI request failed: {exc}") from exc
+
+    def _image_to_request_image_url(self, image_path: str) -> str | None:
+        value = str(image_path or "").strip()
+        if value.startswith(("http://", "https://", "data:image/")):
+            return value
+        return self._image_to_data_url(value)
 
     def _image_to_data_url(self, image_path: str) -> str | None:
         try:
@@ -238,14 +306,17 @@ class ArticleAIAnalysisService:
             return {"skipped": True, "reason": "no_images", "images": []}
         if self.mock_mode:
             return {"summary": f"{len(images)} images", "images": images, "mock": True}
-        if not self._image_api_config()["enabled"]:
+        image_config = self._image_api_config()
+        if not image_config["enabled"]:
             return {"skipped": True, "reason": "image_ai_disabled", "images": []}
+        if not self._is_api_configured(image_config):
+            return {"skipped": True, "reason": "image_ai_not_configured", "images": []}
         prompt = self._render_prompt(
             self._config_value("image_analysis_prompt", "") or DEFAULT_IMAGE_ANALYSIS_PROMPT,
             {"image_count": len(images)},
         )
         return await self._call_json_stage(
-            api_config=self._image_api_config(),
+            api_config=image_config,
             prompt=prompt,
             image_paths=images,
             proxy=proxy,

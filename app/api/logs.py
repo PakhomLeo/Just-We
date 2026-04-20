@@ -113,6 +113,21 @@ def _infer_result(action: str) -> str:
     action_lower = action.lower()
     if any(word in action_lower for word in ['delete', 'remove', 'block']):
         return 'failed'
-    if any(word in action_lower for word in ['create', 'add', 'update', 'edit', 'login']):
+    if any(
+        word in action_lower
+        for word in [
+            'create',
+            'add',
+            'update',
+            'edit',
+            'login',
+            'trigger',
+            'schedule',
+            'export',
+            'health',
+            'discover',
+            'reuse',
+        ]
+    ):
         return 'success'
     return 'pending'

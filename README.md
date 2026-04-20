@@ -1,11 +1,11 @@
-# Just-We
+# Just—We
 
-[![CI](https://github.com/PakhomLeo/dynamicwepubmonitor/actions/workflows/ci.yml/badge.svg)](https://github.com/PakhomLeo/dynamicwepubmonitor/actions/workflows/ci.yml)
+[![CI](https://github.com/PakhomLeo/Just—We/actions/workflows/ci.yml/badge.svg)](https://github.com/PakhomLeo/Just—We/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 中文 | [English](README.en.md)
 
-Just-We 是一个面向微信公众号内容监测的自托管平台。它把抓取账号、监测公众号、文章采集、图片本地化、AI 内容分析、文章导出、Feed 输出、代理管理、限流策略、任务日志和系统管理整合在同一个 Web 控制台里。
+Just—We 是一个面向微信公众号内容监测的自托管平台。它把抓取账号、监测公众号、文章采集、图片本地化、后台 AI 内容分析、文章导出、Feed 输出、代理管理、限流策略、任务日志和系统管理整合在同一个 Web 控制台里。
 
 项目的核心目标不是做一个通用爬虫框架，而是解决“稳定监测一批公众号内容，并把文章、媒体、AI 判断和运维状态沉淀下来”的完整闭环。默认推荐使用 Docker Compose 一键部署，应用容器同时提供 FastAPI API 和已构建的 Vue 前端静态文件。
 
@@ -15,9 +15,9 @@ Just-We 是一个面向微信公众号内容监测的自托管平台。它把抓
 - 抓取账号管理：支持公众号后台和 WeRead 兼容平台接入，包含二维码登录、健康检查、过期检测、风险状态和失败记录。
 - 监测公众号管理：支持从文章链接解析 `biz` / `fakeid`，按用户隔离监测对象，维护 Tier 分层、抓取策略和手动抓取入口。
 - 文章采集与归档：保存标题、正文、富文本 HTML、封面图、发布时间、抓取通道、内容指纹、原始抓取元数据和本地化图片。
-- AI 分析：支持可配置的文本分析、图片分析、类型判断和综合判断流程，并保存结构化分析结果。
+- AI 分析：支持文本和图片 AI 分开配置、专用连接测试、类型判断和综合判断；抓取成功后文章先入库，AI 在后台队列慢慢处理。
 - Feed 与导出：支持单账号 Feed、聚合 Feed、文章导出任务和下载路径。
-- 代理与限流：代理可按业务服务绑定，支持失败冷却、成功率、代理类型、轮换模式和策略配置。
+- 代理与限流：静态住宅代理负责登录和列表抓取，动态住宅代理负责文章解析和图片下载，数据中心代理用于 AI 请求；支持失败冷却、成功率和策略配置。
 - 日志与任务：保留抓取任务、操作日志、失败原因和运行统计，便于排查系统阻塞点。
 - 单容器 Web 托管：生产镜像内置前端产物，后端支持前端路由刷新 fallback。
 
@@ -167,4 +167,4 @@ docker compose build
 
 ## 许可证
 
-Just-We 使用 [MIT License](LICENSE)。
+Just—We 使用 [MIT License](LICENSE)。

@@ -3,7 +3,7 @@
     title="文章列表"
     subtitle="按公众号、AI 状态、内容类型、目标命中和标题关键词筛选文章。"
     watermark="ARTICLES"
-    action-rail="文章列表功能：搜索 / 按公众号筛选 / AI 状态筛选 / 目标命中筛选 / 打开详情 / 打开原文 / 重跑 AI / 删除文章"
+    action-rail="文章列表功能：搜索 / 按公众号筛选 / AI 状态筛选 / 目标命中筛选 / 打开详情 / 重跑 AI / 删除文章"
   >
     <template #header-actions>
       <div class="v2-page-actions">
@@ -62,7 +62,6 @@
             </div>
             <div class="v2-button-row">
               <el-button size="small" @click="router.push(`/articles/${article.id}`)">详情</el-button>
-              <el-button size="small" :disabled="!article.url" @click="openUrl(article.url)">原文</el-button>
               <el-button size="small" type="primary" :loading="reanalyzing[article.id]" @click="reanalyze(article)">重跑 AI</el-button>
               <el-button size="small" type="danger" plain :loading="deleting[article.id]" @click="removeArticle(article)">删除</el-button>
             </div>
@@ -172,7 +171,7 @@ async function reanalyze(article) {
   reanalyzing.value = { ...reanalyzing.value, [article.id]: true }
   try {
     await reanalyzeArticleAI(article.id)
-    ElMessage.success('AI 分析已重跑')
+    ElMessage.success('AI 分析已加入后台队列')
     await loadArticles()
   } finally {
     reanalyzing.value = { ...reanalyzing.value, [article.id]: false }
@@ -189,10 +188,6 @@ async function removeArticle(article) {
   } finally {
     deleting.value = { ...deleting.value, [article.id]: false }
   }
-}
-
-function openUrl(url) {
-  if (url) window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 function contentTypeLabel(value) {

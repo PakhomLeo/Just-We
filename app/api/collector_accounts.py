@@ -12,6 +12,7 @@ from app.schemas.collector_account import (
     CollectorLoginProxyUpdate,
 )
 from app.schemas.qr import QRGenerateRequest, QRGenerateResponse, QRStatusResponse
+from app.repositories.log_repo import LogRepository
 from app.services.collector_account_service import CollectorAccountService
 from app.services.health_service import health_check_service
 from app.services.notification_service import NotificationService
@@ -91,6 +92,20 @@ async def health_check_collector(collector_account_id: int, db: DbSession, curre
         await notification_service.notify_collector_expiring_soon(updated, expires_at)
     elif health_status.value != "normal":
         await notification_service.notify_collector_health_issue(updated, health_status, reason)
+    await LogRepository(db).create_log(
+        user_id=current_user.id,
+        action="health_check_collector_account",
+        target_type="collector_account",
+        target_id=updated.id,
+        after_state={
+            "display_name": updated.display_name,
+            "account_type": updated.account_type.value,
+            "health_status": updated.health_status.value,
+            "risk_status": updated.risk_status.value,
+            "reason": reason,
+        },
+        detail=f"抓取账号健康检查：{updated.display_name}",
+    )
     return CollectorAccountResponse.model_validate(updated)
 
 
@@ -104,6 +119,18 @@ async def discover_collector_fakeid(collector_account_id: int, db: DbSession, cu
         raise HTTPException(status_code=400, detail="Only mp_admin collector accounts support fakeid discovery")
     profile = await discover_mp_admin_profile(account.credentials or {})
     updated = await service.update_discovered_profile(account, profile)
+    await LogRepository(db).create_log(
+        user_id=current_user.id,
+        action="discover_collector_fakeid",
+        target_type="collector_account",
+        target_id=updated.id,
+        after_state={
+            "display_name": updated.display_name,
+            "fakeid": (updated.metadata_json or {}).get("fakeid"),
+            "error": profile.get("error"),
+        },
+        detail=f"发现抓取账号 fakeid：{updated.display_name}",
+    )
     return CollectorAccountResponse.model_validate(updated)
 
 

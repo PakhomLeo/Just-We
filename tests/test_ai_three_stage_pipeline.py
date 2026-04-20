@@ -61,6 +61,7 @@ async def test_type_judgment_fails_after_invalid_retry(monkeypatch):
 @pytest.mark.asyncio
 async def test_article_pipeline_merges_text_image_and_type(monkeypatch):
     service = AIService()
+    monkeypatch.setattr(service, "_is_api_configured", lambda config: True)
 
     async def fake_call_json_stage(**kwargs):
         prompt = kwargs["prompt"]
@@ -88,6 +89,63 @@ async def test_image_analysis_skips_without_images():
     result = await service.analyze_images([])
 
     assert result == {"skipped": True, "reason": "no_images", "images": []}
+
+
+@pytest.mark.asyncio
+async def test_image_analysis_skips_when_image_api_is_not_configured():
+    service = AIService()
+    service.config = type(
+        "Config",
+        (),
+        {
+            "enabled": True,
+            "image_enabled": True,
+            "image_api_url": "https://api.example.com/v1/chat/completions",
+            "image_api_key": "your-api-key",
+            "image_model": "gpt-4o",
+            "timeout_seconds": 60,
+            "image_analysis_prompt": "image",
+        },
+    )()
+
+    result = await service.analyze_images(["some-image.jpg"])
+
+    assert result == {"skipped": True, "reason": "image_ai_not_configured", "images": []}
+
+
+def test_deepseek_base_url_is_normalized_to_chat_completions_endpoint():
+    service = AIService()
+
+    assert service._normalize_chat_completions_url("https://api.deepseek.com") == (
+        "https://api.deepseek.com/chat/completions"
+    )
+    assert service._normalize_chat_completions_url("https://api.deepseek.com/v1") == (
+        "https://api.deepseek.com/v1/chat/completions"
+    )
+    assert service._normalize_chat_completions_url("https://api.deepseek.com/chat/completions") == (
+        "https://api.deepseek.com/chat/completions"
+    )
+
+
+def test_ark_image_sample_url_is_normalized_to_chat_completions_endpoint():
+    service = AIService()
+
+    assert service._normalize_chat_completions_url(
+        "https://ark-project.tos-cn-beijing.ivolces.com/images/view.jpeg",
+        "doubao-seed-2-0-lite-260215",
+    ) == "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    assert service._normalize_chat_completions_url(
+        "https://ark.cn-beijing.volces.com/api/v3",
+        "doubao-seed-2-0-lite-260215",
+    ) == "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+
+
+def test_http_image_urls_are_passed_through_for_vision_models():
+    service = AIService()
+
+    assert service._image_to_request_image_url("https://mmbiz.qpic.cn/example.png") == (
+        "https://mmbiz.qpic.cn/example.png"
+    )
 
 
 @pytest.mark.asyncio

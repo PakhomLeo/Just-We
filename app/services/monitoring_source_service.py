@@ -202,6 +202,7 @@ class MonitoringSourceService:
 
     async def create_from_url(self, owner_user_id, source_url: str, name: str | None = None, fakeid: str | None = None):
         parsed = self.parse_source_url(source_url)
+        source_biz = parsed["biz"]
         resolved = await self.resolve_with_weread_platform(source_url, owner_user_id=owner_user_id)
         if not resolved.get("fakeid"):
             fallback = await self.resolve_with_mp_admin_searchbiz(owner_user_id, name or resolved.get("name"))
@@ -211,9 +212,25 @@ class MonitoringSourceService:
                     "mp_admin_searchbiz": fallback.get("raw"),
                 }
                 resolved = {**resolved, **{k: v for k, v in fallback.items() if v}, "raw": merged_raw}
-        if resolved.get("biz"):
-            parsed["biz"] = str(resolved["biz"]).replace("u__", "")
-        existing = await self.repo.get_by_owner_and_biz(owner_user_id, parsed["biz"])
+        resolved_biz = str(resolved["biz"]).replace("u__", "") if resolved.get("biz") else None
+        existing = await self.repo.get_by_owner_and_biz(owner_user_id, source_biz)
+        if existing is None and resolved_biz and resolved_biz != source_biz:
+            existing = await self.repo.get_by_owner_and_biz(owner_user_id, resolved_biz)
+            if existing is not None:
+                metadata = dict(existing.metadata_json or {})
+                metadata.setdefault("source_biz", source_biz)
+                metadata["resolved_biz"] = resolved_biz
+                if resolved.get("platform_mp_id"):
+                    metadata["weread_platform_mp_id"] = resolved.get("platform_mp_id")
+                strategy_config = dict(existing.strategy_config or {})
+                strategy_config["source_query"] = parsed
+                existing = await self.repo.update(
+                    existing,
+                    biz=source_biz,
+                    source_url=source_url,
+                    metadata_json=metadata,
+                    strategy_config=strategy_config,
+                )
         if existing:
             return existing, False
 
@@ -232,15 +249,17 @@ class MonitoringSourceService:
         metadata = {
             "raw": resolved.get("raw") if resolved else None,
             "resolve_source": resolved.get("resolve_source") if resolved else None,
+            "source_biz": source_biz,
+            "resolved_biz": resolved_biz,
             "weread_platform_mp_id": resolved.get("platform_mp_id") if resolved else None,
             "resolve_error": None if resolved_fakeid else "fakeid_unavailable",
             "capabilities": capabilities,
         }
         monitored = await self.repo.create(
             owner_user_id=owner_user_id,
-            biz=parsed["biz"],
+            biz=source_biz,
             fakeid=resolved_fakeid,
-            name=name or resolved.get("name") or f"公众号 {parsed['biz'][-6:]}",
+            name=name or resolved.get("name") or f"公众号 {source_biz[-6:]}",
             source_url=source_url,
             avatar_url=resolved.get("avatar_url"),
             mp_intro=resolved.get("mp_intro"),

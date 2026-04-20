@@ -294,6 +294,80 @@ class TestMonitoringSourceService:
         assert first.owner_user_id == mock_user.id
         assert second.owner_user_id == other_user.id
 
+    @pytest.mark.asyncio
+    async def test_create_from_url_preserves_source_biz_when_weread_resolves_platform_id(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        service = MonitoringSourceService(test_db)
+        service.resolve_with_weread_platform = AsyncMock(
+            return_value={
+                "biz": "MP_WXS_3884214247",
+                "fakeid": "MP_WXS_3884214247",
+                "platform_mp_id": "MP_WXS_3884214247",
+                "name": "北地后勤",
+                "resolve_source": "weread_platform",
+                "raw": {"id": "MP_WXS_3884214247"},
+            }
+        )
+        source_url = "https://mp.weixin.qq.com/s?__biz=Mzg4NDIxNDI0Nw==&mid=1&idx=1&sn=test"
+
+        account, created = await service.create_from_url(mock_user.id, source_url, name="北地后勤")
+
+        assert created is True
+        assert account.biz == "Mzg4NDIxNDI0Nw=="
+        assert account.fakeid == "MP_WXS_3884214247"
+        assert account.primary_fetch_mode == CollectorAccountType.WEREAD
+        assert account.metadata_json["source_biz"] == "Mzg4NDIxNDI0Nw=="
+        assert account.metadata_json["resolved_biz"] == "MP_WXS_3884214247"
+
+    @pytest.mark.asyncio
+    async def test_create_from_url_reuses_and_migrates_legacy_platform_biz(
+        self,
+        test_db: AsyncSession,
+        mock_user: User,
+    ):
+        legacy = MonitoredAccount(
+            owner_user_id=mock_user.id,
+            biz="MP_WXS_3884214247",
+            fakeid="MP_WXS_3884214247",
+            name="北地后勤",
+            source_url="https://mp.weixin.qq.com/s?__biz=Mzg4NDIxNDI0Nw==",
+            current_tier=1,
+            composite_score=50.0,
+            primary_fetch_mode=CollectorAccountType.WEREAD,
+            status=MonitoredAccountStatus.MONITORING,
+            update_history={},
+            ai_relevance_history={},
+            strategy_config={},
+            metadata_json={},
+        )
+        test_db.add(legacy)
+        await test_db.commit()
+        await test_db.refresh(legacy)
+        service = MonitoringSourceService(test_db)
+        service.resolve_with_weread_platform = AsyncMock(
+            return_value={
+                "biz": "MP_WXS_3884214247",
+                "fakeid": "MP_WXS_3884214247",
+                "platform_mp_id": "MP_WXS_3884214247",
+                "name": "北地后勤",
+                "resolve_source": "weread_platform",
+                "raw": {"id": "MP_WXS_3884214247"},
+            }
+        )
+        source_url = "https://mp.weixin.qq.com/s?__biz=Mzg4NDIxNDI0Nw==&mid=1&idx=1&sn=test"
+
+        account, created = await service.create_from_url(mock_user.id, source_url, name="北地后勤")
+
+        assert created is False
+        assert account.id == legacy.id
+        assert account.biz == "Mzg4NDIxNDI0Nw=="
+        assert account.fakeid == "MP_WXS_3884214247"
+        assert account.metadata_json["source_biz"] == "Mzg4NDIxNDI0Nw=="
+        assert account.metadata_json["resolved_biz"] == "MP_WXS_3884214247"
+
 
 class TestSchedulerService:
     """Test scheduler loading behavior."""
@@ -319,6 +393,26 @@ class TestSchedulerService:
             assert scheduler.get_job(mock_monitored_account.id) is not None
         finally:
             stop_scheduler()
+
+
+@pytest.mark.asyncio
+async def test_stale_pending_history_backfill_does_not_block_new_schedule(
+    test_db: AsyncSession,
+    mock_account: MonitoredAccount,
+):
+    from app.models.fetch_job import FetchJobType
+    from app.services.fetch_job_service import FetchJobService
+
+    service = FetchJobService(test_db)
+    stale = await service.create_job(mock_account.id, FetchJobType.HISTORY_BACKFILL)
+    stale.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+    await test_db.commit()
+
+    assert await service.get_running_history_backfill(mock_account.id) is None
+
+    fresh = await service.create_job(mock_account.id, FetchJobType.HISTORY_BACKFILL)
+
+    assert await service.get_running_history_backfill(mock_account.id) == fresh
 
 
 class FakeRedis:
@@ -1470,8 +1564,8 @@ class TestFetchPipelineService:
         assert notifications[0].notification_type == "fetch_error_risk_control"
 
     @pytest.mark.asyncio
-    async def test_pipeline_creates_high_relevance_notification(self, test_db: AsyncSession):
-        """High relevance articles should emit user-scoped notifications."""
+    async def test_pipeline_queues_ai_analysis_without_blocking_fetch(self, test_db: AsyncSession):
+        """Fetch should save articles with pending AI status and leave AI work to the background task."""
         owner_user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
         monitored = MonitoredAccount(
             owner_user_id=owner_user_id,
@@ -1550,11 +1644,11 @@ class TestFetchPipelineService:
         result = await pipeline.run_monitored_account(monitored.id)
 
         assert result["success"] is True
+        save_kwargs = pipeline.article_service.save_article.await_args.kwargs
+        assert save_kwargs["ai_analysis_status"] == "pending"
+        assert save_kwargs["ai_judgment"] is None
         notifications = (await test_db.execute(Select(Notification))).scalars().all()
-        assert len(notifications) == 1
-        assert notifications[0].notification_type == "high_relevance"
-        assert notifications[0].article_id == 1
-        assert notifications[0].monitored_account_id == monitored.id
+        assert len(notifications) == 0
 
 
 class TestCollectorHealthService:

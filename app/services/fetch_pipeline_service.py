@@ -1,6 +1,8 @@
 """Full fetch pipeline orchestrator for monitored accounts."""
 
+import asyncio
 import hashlib
+import logging
 import random
 from datetime import datetime, timezone
 
@@ -8,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.exceptions import FetchFailedException
+from app.models.article import Article
 from app.models.collector_account import CollectorAccountType
 from app.models.fetch_job import FetchJobType
-from app.models.proxy import ProxyServiceKey
 from app.repositories.monitored_account_repo import MonitoredAccountRepository
 from app.services.ai_service import AIService
 from app.services.article_service import ArticleService
@@ -25,6 +27,7 @@ from app.services.system_config_service import SystemConfigService
 from app.services.weight_config_service import WeightConfigService
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class FetchPipelineService:
@@ -48,24 +51,32 @@ class FetchPipelineService:
         config = await WeightConfigService(self.db).get_or_create()
         return DynamicWeightAdjuster(**WeightConfigService.to_adjuster_kwargs(config))
 
-    async def _analyze_article_with_proxy_fallback(self, content: str, images: list[str]):
-        proxy = await self.fetcher.proxy_service.select_proxy(ProxyServiceKey.AI)
-        if proxy is None:
-            return await self.ai_service.analyze_article(content, images)
-        try:
-            result = await self.ai_service.analyze_article(content, images, proxy=proxy.proxy_url)
-            await self.fetcher.proxy_service.mark_proxy_success(proxy)
-            return result
-        except Exception as exc:
-            await self.fetcher.proxy_service.mark_proxy_failure(proxy, str(exc), cooldown_seconds=120)
-            return await self.ai_service.analyze_article(content, images)
-
     def _schedule_monitored_account(self, monitored_account_id: int, tier: int):
         from app.tasks.fetch_task import run_single_account
 
         interval_hours = self.adjuster.check_intervals.get(tier, 72)
         self.scheduler_service.schedule_next_fetch(monitored_account_id, interval_hours, run_single_account)
         return self.scheduler_service.get_next_run_at(interval_hours)
+
+    def _schedule_article_ai_analysis(self, article_ids: list[int]) -> None:
+        if not article_ids:
+            return
+        from app.tasks.ai_task import run_article_ai_analysis
+
+        for article_id in article_ids:
+            task = asyncio.create_task(run_article_ai_analysis(article_id))
+            task.add_done_callback(self._log_ai_task_result)
+
+    @staticmethod
+    def _log_ai_task_result(task: asyncio.Task) -> None:
+        try:
+            result = task.result()
+            if not result.get("success"):
+                logger.info("Background AI analysis finished with non-success result: %s", result)
+        except asyncio.CancelledError:
+            logger.info("Background AI analysis task was cancelled")
+        except Exception:
+            logger.exception("Background AI analysis task failed")
 
     async def _count_consecutive_low_relevance(self, history: dict) -> int:
         if not history:
@@ -259,7 +270,7 @@ class FetchPipelineService:
                     continue
                 unique_updates.append(update)
             saved_articles = []
-            ai_results = []
+            queued_ai_article_ids: list[int] = []
             for update in unique_updates:
                 detail = await self._run_article_detail_stage(monitored, collector, update)
                 detail_proxy = await self.fetcher.get_detail_proxy_for_mode(collector.account_type)
@@ -270,29 +281,6 @@ class FetchPipelineService:
                     storage_id=monitored.id,
                     proxy=detail_proxy,
                 )
-                try:
-                    ai_result = await self._analyze_article_with_proxy_fallback(parsed.content, parsed.images)
-                    ai_pipeline_result = getattr(self.ai_service, "last_pipeline_result", None)
-                except Exception as exc:
-                    ai_result = {
-                        "ratio": 0.0,
-                        "reason": f"AI analysis failed: {exc}",
-                        "keywords": [],
-                        "json_data": {},
-                    }
-                    ai_pipeline_result = None
-                if not isinstance(ai_pipeline_result, dict):
-                    ai_pipeline_result = {
-                        "status": "success",
-                        "ratio": ai_result.get("ratio", 0.0),
-                        "ai_judgment": ai_result,
-                        "ai_text_analysis": ai_result.get("text_analysis"),
-                        "ai_image_analysis": ai_result.get("image_analysis"),
-                        "ai_type_judgment": ai_result.get("type_judgment"),
-                        "ai_combined_analysis": ai_result.get("json_data"),
-                        "ai_target_match": ai_result.get("target_match"),
-                        "ai_analysis_error": None,
-                    }
                 fingerprint = hashlib.sha256(parsed.content.encode("utf-8")).hexdigest()
                 localized_images = [
                     self.parser.image_downloader.to_public_url(path) or path
@@ -322,31 +310,24 @@ class FetchPipelineService:
                     author=detail.get("author") or update.author,
                     url=update.url,
                     published_at=self._parse_datetime(detail.get("published_at") or update.published_at),
-                    ai_relevance_ratio=ai_pipeline_result.get("ratio"),
-                    ai_judgment=ai_pipeline_result.get("ai_judgment") or ai_result,
-                    ai_text_analysis=ai_pipeline_result.get("ai_text_analysis"),
-                    ai_image_analysis=ai_pipeline_result.get("ai_image_analysis"),
-                    ai_type_judgment=ai_pipeline_result.get("ai_type_judgment"),
-                    ai_combined_analysis=ai_pipeline_result.get("ai_combined_analysis"),
-                    ai_target_match=ai_pipeline_result.get("ai_target_match"),
-                    ai_analysis_status=ai_pipeline_result.get("status"),
-                    ai_analysis_error=ai_pipeline_result.get("ai_analysis_error"),
+                    ai_relevance_ratio=None,
+                    ai_judgment=None,
+                    ai_text_analysis=None,
+                    ai_image_analysis=None,
+                    ai_type_judgment=None,
+                    ai_combined_analysis=None,
+                    ai_target_match=None,
+                    ai_analysis_status="pending",
+                    ai_analysis_error=None,
                     fetch_mode=collector.account_type.value,
                     content_fingerprint=fingerprint,
                     source_payload=update.source_payload,
                 )
                 saved_articles.append(article)
-                ai_results.append(ai_result)
-                await self.notification_service.check_and_notify_high_relevance(
-                    owner_user_id=monitored.owner_user_id,
-                    monitored_account=monitored,
-                    collector_account=collector,
-                    article=article,
-                    relevance_ratio=ai_pipeline_result.get("ratio") or 0.0,
-                )
+                if isinstance(article, Article) and isinstance(getattr(article, "id", None), int):
+                    queued_ai_article_ids.append(article.id)
 
-            aggregate = self._aggregate_ai_results(ai_results)
-            weight_update = self.adjuster.update_after_fetch(monitored, saved_articles, aggregate)
+            weight_update = self.adjuster.update_after_fetch(monitored, saved_articles, None)
             latest_published = max(
                 [a.published_at for a in saved_articles if a.published_at] or [monitored.last_published_at],
                 key=lambda value: value or datetime.min.replace(tzinfo=timezone.utc),
@@ -386,13 +367,17 @@ class FetchPipelineService:
                     "updates_found": len(updates),
                     "new_articles": len(unique_updates),
                     "articles": len(saved_articles),
+                    "ai_analysis_queued": len(queued_ai_article_ids),
                 },
             )
+            await self.db.commit()
+            self._schedule_article_ai_analysis(queued_ai_article_ids)
             return {
                 "success": True,
                 "monitored_account_id": monitored.id,
                 "collector_account_id": collector.id,
                 "articles_processed": len(saved_articles),
+                "ai_analysis_queued": len(queued_ai_article_ids),
                 "new_tier": monitored.current_tier,
             }
         except Exception as exc:
@@ -439,6 +424,12 @@ class FetchPipelineService:
             return {"success": False, "error": "Monitored account not found"}
 
         job = await self.fetch_job_service.repo.get_by_id(job_id) if job_id else None
+        if job_id is not None and job is None:
+            return {
+                "success": False,
+                "error": f"History backfill job {job_id} not found",
+                "job_id": job_id,
+            }
         if job is None:
             existing = await self.fetch_job_service.get_running_history_backfill(monitored_account_id)
             if existing is not None:

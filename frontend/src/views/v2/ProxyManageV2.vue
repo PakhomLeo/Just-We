@@ -1,9 +1,9 @@
 <template>
   <V2Page
     title="代理管理"
-    subtitle="代理只在手动绑定服务后使用；账号登录/列表代理请在抓取账号页绑定。"
+    subtitle="静态住宅用于登录与抓取；动态住宅用于文章解析与图片下载。"
     watermark="PROXY"
-    action-rail="代理功能：新增代理 / 批量导入 / 测试代理 / 编辑详情服务绑定 / 冷却与恢复 / 删除影响提示"
+    action-rail="代理功能：新增代理 / 批量导入 / 测试代理 / 编辑服务绑定 / 冷却与恢复 / 删除影响提示"
   >
     <template #header-actions>
       <div class="v2-page-actions">
@@ -53,7 +53,7 @@
                   @change="value => setServiceDraft(row, value)"
                 >
                   <el-checkbox
-                    v-for="service in services"
+                    v-for="service in visibleServicesForProxy(row)"
                     :key="service.key"
                     :label="service.key"
                     :disabled="Boolean(incompatibleReason(row, service))"
@@ -81,18 +81,16 @@
           <el-form-item label="Port"><el-input-number v-model="form.port" :min="1" :max="65535" style="width: 100%" /></el-form-item>
           <el-form-item label="用户名"><el-input v-model="form.username" /></el-form-item>
           <el-form-item label="密码"><el-input v-model="form.password" show-password /></el-form-item>
-          <el-form-item label="代理类型"><el-select v-model="form.proxy_kind"><el-option v-for="kind in proxyKinds" :key="kind" :label="proxyKindLabel(kind)" :value="kind" /></el-select></el-form-item>
-          <el-form-item label="轮换模式">
-            <el-select v-model="form.rotation_mode">
-              <el-option v-for="mode in rotationModes" :key="mode.value" :label="mode.label" :value="mode.value" />
+          <el-form-item label="代理类型">
+            <el-select v-model="form.proxy_profile">
+              <el-option v-for="profile in proxyProfiles" :key="profile.key" :label="profile.label" :value="profile.key" />
             </el-select>
           </el-form-item>
-          <el-form-item label="粘性时长"><el-input-number v-model="form.sticky_ttl_seconds" :min="0" style="width: 100%" /></el-form-item>
           <el-form-item label="供应商"><el-input v-model="form.provider_name" /></el-form-item>
         </div>
         <el-form-item label="绑定服务">
           <el-checkbox-group v-model="form.service_keys">
-            <el-checkbox v-for="service in compatibleServices(form)" :key="service.key" :label="service.key">{{ service.label }}</el-checkbox>
+            <el-checkbox v-for="service in profileServices(form.proxy_profile)" :key="service.key" :label="service.key">{{ service.label }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
         <el-form-item label="备注"><el-input v-model="form.notes" type="textarea" /></el-form-item>
@@ -107,8 +105,8 @@
       <el-input v-model="bulkText" type="textarea" :rows="8" placeholder="host:port:user:pass，每行一个" />
       <div class="v2-risk-note" style="margin-top: 14px">批量导入会使用当前选择的代理类型和服务绑定。</div>
       <el-form label-position="top" style="margin-top: 16px">
-        <el-form-item label="代理类型"><el-select v-model="bulkKind"><el-option v-for="kind in proxyKinds" :key="kind" :label="proxyKindLabel(kind)" :value="kind" /></el-select></el-form-item>
-        <el-form-item label="绑定服务"><el-checkbox-group v-model="bulkServices"><el-checkbox v-for="service in compatibleServices({ proxy_kind: bulkKind, sticky_ttl_seconds: 0 })" :key="service.key" :label="service.key">{{ service.label }}</el-checkbox></el-checkbox-group></el-form-item>
+        <el-form-item label="代理类型"><el-select v-model="bulkProfile"><el-option v-for="profile in proxyProfiles" :key="profile.key" :label="profile.label" :value="profile.key" /></el-select></el-form-item>
+        <el-form-item label="绑定服务"><el-checkbox-group v-model="bulkServices"><el-checkbox v-for="service in profileServices(bulkProfile)" :key="service.key" :label="service.key">{{ service.label }}</el-checkbox></el-checkbox-group></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showBulk = false">取消</el-button>
@@ -119,7 +117,7 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import V2MetricCard from '@/components/v2/V2MetricCard.vue'
 import V2Page from '@/components/v2/V2Page.vue'
@@ -129,12 +127,33 @@ import { addProxy, bulkAddProxies, checkProxy, deleteProxy, getProxies, getProxy
 import { formatDateTime } from './helpers'
 
 const services = [
-  { key: 'mp_detail', label: '公众号详情' },
-  { key: 'weread_detail', label: 'WeRead 详情' },
-  { key: 'image_proxy', label: '图片代理' },
+  { key: 'mp_admin_login', label: '公众号登录' },
+  { key: 'weread_login', label: 'WeRead 登录' },
+  { key: 'mp_list', label: '公众号抓取' },
+  { key: 'weread_list', label: 'WeRead 抓取' },
+  { key: 'mp_detail', label: '公众号文章解析' },
+  { key: 'weread_detail', label: 'WeRead 文章解析' },
+  { key: 'image_proxy', label: '图片下载' },
   { key: 'ai', label: 'AI 请求' }
 ]
-const proxyKinds = ['isp_static', 'residential_static', 'residential_rotating', 'mobile_rotating', 'custom_gateway', 'mobile_static', 'datacenter']
+const proxyProfiles = [
+  {
+    key: 'static_residential',
+    label: '静态住宅',
+    proxy_kind: 'residential_static',
+    rotation_mode: 'fixed',
+    sticky_ttl_seconds: null,
+    default_services: ['mp_admin_login', 'weread_login', 'mp_list', 'weread_list']
+  },
+  {
+    key: 'dynamic_residential',
+    label: '动态住宅',
+    proxy_kind: 'residential_rotating',
+    rotation_mode: 'round_robin',
+    sticky_ttl_seconds: null,
+    default_services: ['mp_detail', 'weread_detail', 'image_proxy']
+  }
+]
 const loading = ref(false)
 const creating = ref(false)
 const bulkCreating = ref(false)
@@ -144,19 +163,29 @@ const selectedServiceKey = ref('')
 const showCreate = ref(false)
 const showBulk = ref(false)
 const bulkText = ref('')
-const bulkKind = ref('residential_rotating')
-const bulkServices = ref([])
+const bulkProfile = ref('dynamic_residential')
+const bulkServices = ref(defaultServicesForProfile(bulkProfile.value))
 const serviceDrafts = ref({})
 const serviceSaving = ref({})
-const rotationModes = [
-  { label: '固定', value: 'fixed' },
-  { label: '粘性', value: 'sticky' },
-  { label: '轮询', value: 'round_robin' },
-  { label: '每次请求', value: 'per_request' },
-  { label: '服务商自动', value: 'provider_auto' }
-]
-const form = reactive({ host: '', port: 8080, username: '', password: '', proxy_kind: 'residential_static', rotation_mode: 'fixed', sticky_ttl_seconds: 0, provider_name: '', notes: '', service_keys: [] })
+const form = reactive({
+  host: '',
+  port: 8080,
+  username: '',
+  password: '',
+  proxy_profile: 'static_residential',
+  provider_name: '',
+  notes: '',
+  service_keys: defaultServicesForProfile('static_residential')
+})
 const openBulkDialog = () => { showBulk.value = true }
+
+watch(() => form.proxy_profile, profile => {
+  form.service_keys = defaultServicesForProfile(profile)
+})
+
+watch(bulkProfile, profile => {
+  bulkServices.value = defaultServicesForProfile(profile)
+})
 
 onMounted(() => {
   loadData()
@@ -192,17 +221,16 @@ async function handleCreate() {
 async function handleBulkCreate() {
   const items = bulkText.value.split('\n').map(line => line.trim()).filter(Boolean).map(line => {
     const [host, port, username, password] = line.split(':')
+    if (!host || !Number(port)) return null
     return proxyPayload({
       host,
       port: Number(port),
       username,
       password,
-      proxy_kind: bulkKind.value,
-      rotation_mode: bulkKind.value.includes('rotating') ? 'round_robin' : 'fixed',
-      sticky_ttl_seconds: 0,
+      proxy_profile: bulkProfile.value,
       service_keys: bulkServices.value
     })
-  })
+  }).filter(Boolean)
   if (!items.length) return
   bulkCreating.value = true
   try {
@@ -222,13 +250,13 @@ function handleExpandChange(proxy, expandedRows) {
 }
 
 function setServiceDraft(proxy, value) {
-  serviceDrafts.value = { ...serviceDrafts.value, [proxy.id]: value }
+  serviceDrafts.value = { ...serviceDrafts.value, [proxy.id]: mergeHiddenServiceKeys(proxy, value) }
 }
 
 async function saveProxyServices(proxy) {
   serviceSaving.value = { ...serviceSaving.value, [proxy.id]: true }
   try {
-    await updateProxyServices(proxy.id, { service_keys: serviceDrafts.value[proxy.id] || [] })
+    await updateProxyServices(proxy.id, { service_keys: normalizeServiceKeys(serviceDrafts.value[proxy.id] || [], proxy) })
     await loadData()
   } finally {
     serviceSaving.value = { ...serviceSaving.value, [proxy.id]: false }
@@ -242,7 +270,7 @@ async function handleTest(proxy) {
 }
 
 async function toggleProxy(proxy, value) {
-  await updateProxy(proxy.id, { ...proxy, is_active: value })
+  await updateProxy(proxy.id, { is_active: value })
   await loadData()
 }
 
@@ -252,36 +280,109 @@ async function handleDelete(proxy) {
   await loadData()
 }
 
-function compatibleServices(proxy) {
-  return services.filter(service => !incompatibleReason(proxy, service))
+function visibleServicesForProxy(proxy) {
+  const visible = new Set(visibleServiceKeysForProxy(proxy))
+  return services.filter(service => visible.has(service.key))
 }
 
 function incompatibleReason(proxy, service) {
-  const kind = proxy.proxy_kind
-  if (kind === 'datacenter' && service.key !== 'ai') return '数据中心代理不用于微信链路'
-  if (['residential_rotating', 'mobile_rotating', 'custom_gateway'].includes(kind)) {
-    if (service.key === 'ai') return 'AI 请求建议使用数据中心或静态代理'
-  }
-  if (['isp_static', 'residential_static', 'mobile_static'].includes(kind) && ['image_proxy', 'ai'].includes(service.key)) return ''
-  return ''
-}
-
-function serviceLabel(key) {
-  return services.find(item => item.key === key)?.label || key
+  const compatible = compatibleServiceKeys(proxy)
+  if (compatible.includes(service.key)) return ''
+  if (proxy.proxy_kind === 'datacenter') return '数据中心代理仅允许用于 AI，禁止用于微信链路'
+  if (service.key === 'ai') return 'AI 请求请使用数据中心代理'
+  if (['mp_admin_login', 'weread_login', 'mp_list', 'weread_list'].includes(service.key)) return '登录与抓取使用静态住宅代理'
+  if (['mp_detail', 'weread_detail', 'image_proxy'].includes(service.key)) return '文章解析与图片下载使用动态住宅代理'
+  return '当前代理类型不推荐用于该服务'
 }
 
 function proxyKindLabel(kind) {
-  return ({ isp_static: '静态 ISP', residential_static: '静态住宅', residential_rotating: '旋转住宅', mobile_rotating: '旋转移动', custom_gateway: '短效网关', mobile_static: '静态移动', datacenter: '数据中心' })[kind] || kind
+  return ({ isp_static: '静态 ISP', residential_static: '静态住宅', residential_rotating: '动态住宅', mobile_rotating: '动态移动', custom_gateway: '短效网关', mobile_static: '静态移动', datacenter: '数据中心' })[kind] || kind
 }
 
 function proxyPayload(source) {
   const payload = { ...source }
+  if (payload.proxy_profile) {
+    Object.assign(payload, profileProxy(payload.proxy_profile))
+    delete payload.proxy_profile
+  }
+  payload.service_keys = normalizeServiceKeys(payload.service_keys || [], payload)
+  payload.service_type = serviceTypeForServices(payload.service_keys)
   if (!payload.username) payload.username = null
   if (!payload.password) payload.password = null
   if (!payload.provider_name) payload.provider_name = null
   if (!payload.notes) payload.notes = null
   payload.sticky_ttl_seconds = Number(payload.sticky_ttl_seconds) > 0 ? Number(payload.sticky_ttl_seconds) : null
   return payload
+}
+
+function profileConfig(profile) {
+  return proxyProfiles.find(item => item.key === profile) || proxyProfiles[0]
+}
+
+function profileProxy(profile) {
+  const config = profileConfig(profile)
+  return {
+    proxy_kind: config.proxy_kind,
+    rotation_mode: config.rotation_mode,
+    sticky_ttl_seconds: config.sticky_ttl_seconds
+  }
+}
+
+function defaultServicesForProfile(profile) {
+  return [...profileConfig(profile).default_services]
+}
+
+function profileServices(profile) {
+  const visible = new Set(defaultServicesForProfile(profile))
+  return services.filter(service => visible.has(service.key))
+}
+
+function compatibleServiceKeys(proxy) {
+  const kind = proxy.proxy_kind
+  const stickyTtl = Number(proxy.sticky_ttl_seconds || 0)
+  if (kind === 'datacenter') return ['ai']
+  if (['isp_static', 'residential_static', 'mobile_static'].includes(kind)) {
+    return ['mp_admin_login', 'weread_login', 'mp_list', 'weread_list', 'mp_detail', 'weread_detail']
+  }
+  if (['residential_rotating', 'mobile_rotating', 'custom_gateway'].includes(kind)) {
+    const keys = ['mp_detail', 'weread_detail', 'image_proxy']
+    if (stickyTtl >= 300) keys.push('mp_list', 'weread_list')
+    return keys
+  }
+  return []
+}
+
+function normalizeServiceKeys(keys, proxy) {
+  const compatible = new Set(compatibleServiceKeys(proxy))
+  return [...new Set(keys)].filter(key => compatible.has(key))
+}
+
+function mergeHiddenServiceKeys(proxy, visibleKeys) {
+  const visible = new Set(visibleServiceKeysForProxy(proxy))
+  const hiddenCurrent = (proxy.service_keys || []).filter(key => !visible.has(key))
+  return normalizeServiceKeys([...hiddenCurrent, ...visibleKeys], proxy)
+}
+
+function serviceTypeForServices(keys) {
+  if (keys.includes('mp_list')) return 'mp_list'
+  if (keys.includes('weread_list')) return 'weread_list'
+  if (keys.includes('mp_detail')) return 'mp_detail'
+  if (keys.includes('weread_detail')) return 'weread_detail'
+  if (keys.includes('image_proxy')) return 'parse'
+  if (keys.includes('ai')) return 'ai'
+  return 'fetch'
+}
+
+function visibleServiceKeysForProxy(proxy) {
+  const kind = proxy.proxy_kind
+  if (kind === 'datacenter') return ['ai']
+  if (['isp_static', 'residential_static', 'mobile_static'].includes(kind)) {
+    return ['mp_admin_login', 'weread_login', 'mp_list', 'weread_list']
+  }
+  if (['residential_rotating', 'mobile_rotating', 'custom_gateway'].includes(kind)) {
+    return ['mp_detail', 'weread_detail', 'image_proxy']
+  }
+  return compatibleServiceKeys(proxy)
 }
 </script>
 

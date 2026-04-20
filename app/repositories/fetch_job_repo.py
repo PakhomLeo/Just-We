@@ -1,6 +1,8 @@
 """Repository for fetch jobs."""
 
-from sqlalchemy import Select, and_
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import Select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.fetch_job import FetchJob, FetchJobStatus, FetchJobType
@@ -30,14 +32,22 @@ class FetchJobRepository(BaseRepository):
         self,
         monitored_account_id: int,
         job_type: FetchJobType,
+        pending_grace_minutes: int = 5,
     ) -> FetchJob | None:
+        pending_cutoff = datetime.now(timezone.utc) - timedelta(minutes=pending_grace_minutes)
         result = await self.db.execute(
             Select(FetchJob)
             .where(
                 and_(
                     FetchJob.monitored_account_id == monitored_account_id,
                     FetchJob.job_type == job_type,
-                    FetchJob.status.in_([FetchJobStatus.PENDING, FetchJobStatus.RUNNING]),
+                    or_(
+                        FetchJob.status == FetchJobStatus.RUNNING,
+                        and_(
+                            FetchJob.status == FetchJobStatus.PENDING,
+                            FetchJob.created_at >= pending_cutoff,
+                        ),
+                    ),
                 )
             )
             .order_by(FetchJob.created_at.desc())

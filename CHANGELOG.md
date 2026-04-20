@@ -1,9 +1,15 @@
 # Changelog
 
-All notable changes to Just-We are tracked here.
+All notable changes to Just—We are tracked here.
 
 ## Unreleased
 
+- Renamed the GitHub project and documentation branding to Just—We.
+- Decoupled article fetching from AI analysis: fetched articles are saved first,
+  then queued for background AI processing.
+- Added AI text/image connectivity tests using dedicated synthetic payloads.
+- Simplified proxy configuration around static residential login/list services
+  and dynamic residential article/image services.
 - Added Docker one-command deployment for app, PostgreSQL, and Redis.
 - Added production SPA static serving from the FastAPI container.
 - Added open source project files: license, contribution guide, security policy,

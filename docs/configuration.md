@@ -1,6 +1,6 @@
 # Configuration
 
-Just-We uses environment variables through `pydantic-settings`.
+Just—We uses environment variables through `pydantic-settings`.
 
 - Local development: copy `.env.example` to `.env`.
 - Docker deployment: use the defaults in `docker-compose.yml`, or copy
@@ -46,6 +46,19 @@ deployments, disable default bootstrap after provisioning an administrator.
 | `HIGH_RELEVANCE_THRESHOLD` | `0.8` | Threshold for high-relevance notifications. |
 | `AI_CONSECUTIVE_LOW_THRESHOLD` | `3` | Consecutive low-relevance threshold. |
 
+These environment variables seed the first AI configuration row. The settings
+page then stores the active text and image AI configuration in the database:
+
+- Text AI: API URL, API key, model, text analysis focus, and target-type
+  judgment prompt.
+- Image AI: API URL, API key, model, image analysis focus, and timeout.
+- `POST /api/system/ai-config/test` tests the current form values with a
+  dedicated synthetic payload. It does not send an existing article body or
+  production image to the provider.
+- Article fetching and AI analysis are decoupled. Successful article fetches
+  are saved with `ai_analysis_status=pending`; background AI tasks update the
+  article later to `success`, `failed`, or `skipped`.
+
 ## WeRead and QR Login
 
 | Variable | Default | Description |
@@ -60,12 +73,27 @@ External WeChat, WeRead, AI, and proxy services are optional for local
 usability testing. Without credentials, the UI should still save configuration,
 show clear states, and return understandable failures.
 
-WeRead-compatible platforms have account and IP-level request limits. Just-We
+WeRead-compatible platforms have account and IP-level request limits. Just—We
 does not run article-list probes during periodic health checks; it validates the
 token during real list fetches, cools down after a first suspected credential
 failure, and only marks the account expired after repeated failures. Keep the
 QR login option that auto-exits after 24 hours unchecked, and spread monitored
 accounts across multiple WeRead accounts when you need higher fetch volume.
+
+## Proxy Service Bindings
+
+Proxy records are created and edited from the proxy management page. The current
+UI intentionally exposes two operational profiles for WeChat traffic:
+
+| Profile | Backing kind | Default service keys | Purpose |
+| --- | --- | --- | --- |
+| Static residential | `residential_static` | `mp_admin_login`, `weread_login`, `mp_list`, `weread_list` | QR login and article-list fetches that need a stable exit IP. |
+| Dynamic residential | `residential_rotating` | `mp_detail`, `weread_detail`, `image_proxy` | Article detail parsing and localized image downloading. |
+
+Datacenter proxies remain supported by the backend for `ai` service bindings,
+but they are not offered as a default WeChat proxy profile in the simplified
+proxy form. Existing advanced proxy kinds are preserved for compatibility and
+can still be returned by the API.
 
 ## Weight and Scheduling
 

@@ -1,13 +1,13 @@
-# Just-We
+# Just—We
 
-[![CI](https://github.com/PakhomLeo/dynamicwepubmonitor/actions/workflows/ci.yml/badge.svg)](https://github.com/PakhomLeo/dynamicwepubmonitor/actions/workflows/ci.yml)
+[![CI](https://github.com/PakhomLeo/Just—We/actions/workflows/ci.yml/badge.svg)](https://github.com/PakhomLeo/Just—We/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [中文](README.md) | English
 
-Just-We is a self-hosted platform for monitoring WeChat Official Account content.
+Just—We is a self-hosted platform for monitoring WeChat Official Account content.
 It brings collector accounts, monitored accounts, article collection, localized
-media, AI relevance analysis, exports, Feed access, rate limits, proxies, task
+media, background AI analysis, exports, Feed access, rate limits, proxies, task
 logs, and system administration into one web console.
 
 The project is intentionally scoped around an operational monitoring workflow,
@@ -25,11 +25,14 @@ The app container serves both the FastAPI API and the built Vue frontend.
   ownership, tiering, scheduling strategy, and manual fetch triggers.
 - Article collection with title, text, rich HTML, cover image, publish time,
   fetch mode, content fingerprint, source metadata, and localized images.
-- Configurable AI analysis for text, image, article type judgment, and combined
-  structured decisions.
+- Configurable text and image AI analysis with dedicated connectivity tests,
+  article type judgment, and combined structured decisions. Articles are saved
+  by the fetch pipeline first, then queued for background AI processing.
 - Feed output, aggregate Feed tokens, article export jobs, and download paths.
-- Proxy and rate-limit management with service bindings, failure cooldowns,
-  success rate tracking, proxy kind, rotation mode, and policy configuration.
+- Proxy and rate-limit management with service bindings, failure cooldowns, and
+  success rate tracking. Static residential proxies are used for login and list
+  fetches, dynamic residential proxies for article parsing and image downloads,
+  and datacenter proxies for AI requests.
 - Task logs, operation logs, failure categories, and runtime statistics.
 - Single-container production web serving with SPA deep-link fallback.
 
@@ -53,7 +56,7 @@ docs/        Deployment, configuration, design, and reference documentation
 
 ## Quick Start with Docker
 
-Docker Compose is the recommended way to try or self-host Just-We:
+Docker Compose is the recommended way to try or self-host Just—We:
 
 ```bash
 docker compose up -d --build
@@ -190,4 +193,4 @@ supported versions, reporting guidance, and deployment security notes.
 
 ## License
 
-Just-We is licensed under the [MIT License](LICENSE).
+Just—We is licensed under the [MIT License](LICENSE).

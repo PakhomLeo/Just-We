@@ -156,8 +156,8 @@ class ArticleService:
     async def update_ai_analysis(
         self,
         article_id: int,
-        ai_relevance_ratio: float,
-        ai_judgment: dict[str, Any],
+        ai_relevance_ratio: float | None,
+        ai_judgment: dict[str, Any] | None,
         ai_text_analysis: dict[str, Any] | None = None,
         ai_image_analysis: dict[str, Any] | None = None,
         ai_type_judgment: dict[str, Any] | None = None,
@@ -181,6 +181,24 @@ class ArticleService:
             ai_target_match=ai_target_match,
             ai_analysis_status=ai_analysis_status,
             ai_analysis_error=ai_analysis_error,
+        )
+
+    async def mark_ai_pending(self, article_id: int) -> Article | None:
+        """Mark an article for asynchronous AI analysis."""
+        article = await self.article_repo.get_by_id(article_id)
+        if article is None:
+            return None
+        return await self.article_repo.update(
+            article,
+            ai_relevance_ratio=None,
+            ai_judgment=None,
+            ai_text_analysis=None,
+            ai_image_analysis=None,
+            ai_type_judgment=None,
+            ai_combined_analysis=None,
+            ai_target_match=None,
+            ai_analysis_status="pending",
+            ai_analysis_error=None,
         )
 
     async def delete_visible_article(self, article_id: int, current_user) -> bool:

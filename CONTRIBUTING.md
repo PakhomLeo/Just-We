@@ -1,6 +1,6 @@
-# Contributing to Just-We
+# Contributing to Just—We
 
-Thanks for helping improve Just-We. This project keeps a pragmatic review bar:
+Thanks for helping improve Just—We. This project keeps a pragmatic review bar:
 changes should be easy to run, covered by focused tests, and aligned with the
 existing FastAPI service and Vue v2 admin UI.
 

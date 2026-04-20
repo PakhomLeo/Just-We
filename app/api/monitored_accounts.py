@@ -11,6 +11,7 @@ from app.schemas.monitored_account import (
 )
 from app.services.monitoring_source_service import MonitoringSourceService
 from app.services.fetch_job_service import FetchJobService
+from app.repositories.log_repo import LogRepository
 from app.models.fetch_job import FetchJobType
 from app.tasks.fetch_task import run_single_account, run_history_backfill
 
@@ -28,11 +29,29 @@ async def list_monitored_accounts(db: DbSession, current_user: CurrentUser):
 @router.post("/", response_model=MonitoredAccountResponse)
 async def create_monitored_account(request: MonitoredAccountCreate, db: DbSession, current_user: CurrentUser):
     service = MonitoringSourceService(db)
-    monitored, _ = await service.create_from_url(
+    monitored, created = await service.create_from_url(
         owner_user_id=current_user.id,
         source_url=request.source_url,
         name=request.name,
         fakeid=request.fakeid,
+    )
+    await LogRepository(db).create_log(
+        user_id=current_user.id,
+        action="create_monitored_account" if created else "reuse_monitored_account",
+        target_type="monitored_account",
+        target_id=monitored.id,
+        after_state={
+            "id": monitored.id,
+            "name": monitored.name,
+            "biz": monitored.biz,
+            "fakeid": monitored.fakeid,
+            "fetch_mode": monitored.primary_fetch_mode.value,
+        },
+        detail=(
+            f"创建监测对象 {monitored.name}"
+            if created
+            else f"复用已有监测对象 {monitored.name}"
+        ),
     )
     return MonitoredAccountResponse.model_validate(monitored)
 
@@ -53,7 +72,29 @@ async def update_monitored_account(monitored_account_id: int, request: Monitored
     if account is None:
         raise HTTPException(status_code=404, detail="Monitored account not found")
     payload = {k: v for k, v in request.model_dump().items() if v is not None}
+    before_state = {
+        "name": account.name,
+        "status": account.status.value,
+        "tier": account.current_tier,
+        "fakeid": account.fakeid,
+        "fetch_mode": account.primary_fetch_mode.value,
+    }
     updated = await service.update(account, **payload)
+    await LogRepository(db).create_log(
+        user_id=current_user.id,
+        action="update_monitored_account",
+        target_type="monitored_account",
+        target_id=updated.id,
+        before_state=before_state,
+        after_state={
+            "name": updated.name,
+            "status": updated.status.value,
+            "tier": updated.current_tier,
+            "fakeid": updated.fakeid,
+            "fetch_mode": updated.primary_fetch_mode.value,
+        },
+        detail=f"更新监测对象 {updated.name}",
+    )
     return MonitoredAccountResponse.model_validate(updated)
 
 
@@ -72,6 +113,14 @@ async def trigger_monitored_fetch(monitored_account_id: int, background_tasks: B
     account = await service.get_visible(monitored_account_id, current_user)
     if account is None:
         raise HTTPException(status_code=404, detail="Monitored account not found")
+    await LogRepository(db).create_log(
+        user_id=current_user.id,
+        action="trigger_monitored_fetch",
+        target_type="monitored_account",
+        target_id=account.id,
+        after_state={"name": account.name, "fetch_mode": account.primary_fetch_mode.value},
+        detail=f"触发监测对象抓取 {account.name}",
+    )
     background_tasks.add_task(run_single_account, monitored_account_id)
     return {"status": "scheduled", "monitored_account_id": monitored_account_id}
 
@@ -87,6 +136,15 @@ async def trigger_history_backfill(monitored_account_id: int, background_tasks: 
     if existing is not None:
         return {"status": "already_running", "job_id": existing.id, "monitored_account_id": monitored_account_id}
     job = await job_service.create_job(monitored_account_id, FetchJobType.HISTORY_BACKFILL)
+    await LogRepository(db).create_log(
+        user_id=current_user.id,
+        action="trigger_history_backfill",
+        target_type="monitored_account",
+        target_id=account.id,
+        after_state={"job_id": job.id, "name": account.name},
+        detail=f"触发历史回填 {account.name}",
+    )
+    await db.commit()
     background_tasks.add_task(run_history_backfill, monitored_account_id, job.id)
     return {"status": "scheduled", "job_id": job.id, "monitored_account_id": monitored_account_id}
 
@@ -120,4 +178,12 @@ async def stop_history_backfill(monitored_account_id: int, db: DbSession, curren
     job = await FetchJobService(db).request_stop_history_backfill(monitored_account_id)
     if job is None:
         return {"status": "idle", "monitored_account_id": monitored_account_id}
+    await LogRepository(db).create_log(
+        user_id=current_user.id,
+        action="stop_history_backfill",
+        target_type="monitored_account",
+        target_id=account.id,
+        after_state={"job_id": job.id, "name": account.name, "status": job.status.value},
+        detail=f"停止历史回填 {account.name}",
+    )
     return {"status": "stopped", "job_id": job.id, "monitored_account_id": monitored_account_id, "payload": job.payload or {}}

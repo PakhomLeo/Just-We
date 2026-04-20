@@ -13,7 +13,10 @@
     </template>
 
     <div class="settings-grid">
-      <V2Section title="AI 文字解析" subtitle="立即生效；后端会自动补齐 JSON 输出约束。">
+      <V2Section class="ai-settings-card" title="AI 文字解析" subtitle="立即生效；后端会自动补齐 JSON 输出约束。">
+        <template #actions>
+          <el-button size="small" type="primary" :loading="testingAI.text" @click="testAI('text')">测试连接</el-button>
+        </template>
         <el-form label-position="top">
           <el-form-item label="启用 AI"><el-switch v-model="settings.ai.enabled" /></el-form-item>
           <el-form-item label="目标文章类型"><el-input v-model="settings.ai.target_article_type" /></el-form-item>
@@ -23,9 +26,16 @@
           <el-form-item label="文字解析关注内容"><el-input class="prompt-textarea" v-model="settings.ai.text_analysis_instruction" type="textarea" :rows="2" placeholder="填写希望 AI 从文章中提取或关注的内容，例如：商业模式、关键观点、风险信号。" /></el-form-item>
           <el-form-item label="类型判断要求"><el-input class="prompt-textarea" v-model="settings.ai.type_judgment_instruction" type="textarea" :rows="2" placeholder="填写目标文章的判断标准，例如：只命中 AI 工程化、开源模型和开发者工具相关内容。" /></el-form-item>
         </el-form>
+        <div v-if="aiTestResults.text" class="ai-test-result" :class="{ failed: !aiTestResults.text.success }">
+          <strong>{{ aiTestResults.text.success ? '连接成功' : '连接失败' }}</strong>
+          <span>{{ formatAITestResult(aiTestResults.text) }}</span>
+        </div>
       </V2Section>
 
-      <V2Section title="AI 图片解析" subtitle="多模态图片解析；无图片时跳过。">
+      <V2Section class="ai-settings-card" title="AI 图片解析" subtitle="多模态图片解析；无图片时跳过。">
+        <template #actions>
+          <el-button size="small" type="primary" :loading="testingAI.image" @click="testAI('image')">测试连接</el-button>
+        </template>
         <el-form label-position="top">
           <el-form-item label="启用图片解析"><el-switch v-model="settings.ai.image_enabled" /></el-form-item>
           <el-form-item label="图片 API URL"><el-input v-model="settings.ai.image_api_url" /></el-form-item>
@@ -34,6 +44,10 @@
           <el-form-item label="图片解析关注内容"><el-input class="prompt-textarea" v-model="settings.ai.image_analysis_instruction" type="textarea" :rows="2" placeholder="填写希望 AI 从配图中识别的内容，例如：图表结论、截图文字、产品界面、风险信息。" /></el-form-item>
           <el-form-item class="full-width-control" label="超时秒数"><el-input-number v-model="settings.ai.timeout_seconds" :min="5" :max="300" /></el-form-item>
         </el-form>
+        <div v-if="aiTestResults.image" class="ai-test-result" :class="{ failed: !aiTestResults.image.success }">
+          <strong>{{ aiTestResults.image.success ? '连接成功' : '连接失败' }}</strong>
+          <span>{{ formatAITestResult(aiTestResults.image) }}</span>
+        </div>
       </V2Section>
 
       <V2Section title="抓取策略" subtitle="影响新任务；历史回填按策略逐页推进。">
@@ -128,6 +142,7 @@ import {
   getNotificationPolicy,
   getProxyPolicy,
   getRateLimitPolicy,
+  testAIConfig,
   updateAIConfig,
   updateDefaultAdmin,
   updateFetchPolicy,
@@ -138,6 +153,8 @@ import {
 } from '@/api/system'
 
 const saving = ref(false)
+const testingAI = reactive({ text: false, image: false })
+const aiTestResults = reactive({ text: null, image: null })
 const settings = reactive({
   ai: {
     enabled: true,
@@ -245,6 +262,27 @@ async function handleSave() {
   }
 }
 
+async function testAI(stage) {
+  testingAI[stage] = true
+  try {
+    const response = await testAIConfig({ stage, config: buildAIPayload() })
+    aiTestResults[stage] = response.data
+    if (response.data?.success) {
+      ElMessage.success(stage === 'text' ? '文字 AI 连接成功' : '图片 AI 连接成功')
+    } else {
+      ElMessage.error(response.data?.error || 'AI 连接测试失败')
+    }
+  } finally {
+    testingAI[stage] = false
+  }
+}
+
+function formatAITestResult(result) {
+  if (!result) return ''
+  const base = `${result.model || '-'} · ${result.duration_ms || 0}ms`
+  return result.success ? base : `${base} · ${result.error || '测试失败'}`
+}
+
 function extractUserInstruction(prompt) {
   const marker = '用户要求：'
   const value = String(prompt || '')
@@ -312,6 +350,39 @@ function composeTypeJudgmentPrompt(instruction) {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 22px;
+  align-items: stretch;
+}
+
+.ai-settings-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+
+  :deep(.el-form) {
+    flex: 1;
+  }
+}
+
+.ai-test-result {
+  margin-top: auto;
+  border-radius: 18px;
+  background: rgba(#1f8f5f, 0.12);
+  color: #176746;
+  padding: 12px 14px;
+  display: grid;
+  gap: 4px;
+  font-weight: 900;
+
+  &.failed {
+    background: rgba(#c43d4b, 0.12);
+    color: #9f2634;
+  }
+
+  span {
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
 }
 
 .settings-actions {

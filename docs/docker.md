@@ -1,6 +1,6 @@
 # Docker Deployment
 
-This guide runs Just-We as a single app container plus PostgreSQL and Redis:
+This guide runs Just—We as a single app container plus PostgreSQL and Redis:
 
 - `app`: FastAPI API, scheduled tasks, media serving, and built Vue static files.
 - `postgres`: PostgreSQL 16 with a named volume.

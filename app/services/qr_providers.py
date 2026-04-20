@@ -253,6 +253,13 @@ class MpAdminQRProvider(BaseQRProvider):
             "raw": first,
         }
 
+    def _safe_cookie_dict(self, client: httpx.AsyncClient) -> dict[str, str]:
+        """Return cookies as a plain dict even when duplicate names exist."""
+        cookies: dict[str, str] = {}
+        for cookie in client.cookies.jar:
+            cookies[cookie.name] = cookie.value
+        return cookies
+
     async def discover_profile_from_credentials(self, credentials: dict[str, Any]) -> dict[str, Any]:
         """Discover MP admin nickname and fakeid from persisted token/cookies."""
         cookies = credentials.get("cookies") or {}
@@ -260,45 +267,48 @@ class MpAdminQRProvider(BaseQRProvider):
         if not cookies or not token:
             return {"fakeid": None, "nickname": None, "error": "missing_token_or_cookies"}
         headers = self._build_headers()
-        async with httpx.AsyncClient(timeout=30, headers=headers, follow_redirects=True, cookies=cookies) as client:
-            home_response = await client.get(
-                f"{self.base_url}/cgi-bin/home",
-                params={"token": token, "lang": "zh_CN"},
-            )
-            home_profile = self._extract_home_profile(home_response.text)
-            query = home_profile.get("nickname") or credentials.get("nickname") or ""
-            search_payload: dict[str, Any] = {}
-            if query:
-                response = await client.get(
-                    f"{self.base_url}/cgi-bin/searchbiz",
-                    params={
-                        "action": "search_biz",
-                        "token": token,
-                        "lang": "zh_CN",
-                        "f": "json",
-                        "ajax": "1",
-                        "random": "0.1",
-                        "query": query,
-                        "begin": "0",
-                        "count": "5",
-                    },
+        try:
+            async with httpx.AsyncClient(timeout=30, headers=headers, follow_redirects=True, cookies=cookies) as client:
+                home_response = await client.get(
+                    f"{self.base_url}/cgi-bin/home",
+                    params={"token": token, "lang": "zh_CN"},
                 )
-                if response.status_code < 400:
-                    try:
-                        search_payload = self._parse_searchbiz_response(response.json())
-                    except Exception:
-                        search_payload = {}
-            fakeid = home_profile.get("fakeid") or search_payload.get("fakeid")
-            nickname = search_payload.get("nickname") or home_profile.get("nickname")
-            return {
-                "fakeid": fakeid,
-                "nickname": nickname,
-                "alias": search_payload.get("alias"),
-                "avatar_url": search_payload.get("avatar_url"),
-                "home_profile": home_profile,
-                "searchbiz": search_payload.get("raw"),
-                "cookies": dict(client.cookies.items()),
-            }
+                home_profile = self._extract_home_profile(home_response.text)
+                query = home_profile.get("nickname") or credentials.get("nickname") or ""
+                search_payload: dict[str, Any] = {}
+                if query:
+                    response = await client.get(
+                        f"{self.base_url}/cgi-bin/searchbiz",
+                        params={
+                            "action": "search_biz",
+                            "token": token,
+                            "lang": "zh_CN",
+                            "f": "json",
+                            "ajax": "1",
+                            "random": "0.1",
+                            "query": query,
+                            "begin": "0",
+                            "count": "5",
+                        },
+                    )
+                    if response.status_code < 400:
+                        try:
+                            search_payload = self._parse_searchbiz_response(response.json())
+                        except Exception:
+                            search_payload = {}
+                fakeid = home_profile.get("fakeid") or search_payload.get("fakeid")
+                nickname = search_payload.get("nickname") or home_profile.get("nickname")
+                return {
+                    "fakeid": fakeid,
+                    "nickname": nickname,
+                    "alias": search_payload.get("alias"),
+                    "avatar_url": search_payload.get("avatar_url"),
+                    "home_profile": home_profile,
+                    "searchbiz": search_payload.get("raw"),
+                    "cookies": self._safe_cookie_dict(client),
+                }
+        except Exception as exc:
+            return {"fakeid": None, "nickname": None, "error": str(exc)}
 
     async def _fetch_qr_data_url(self, client: httpx.AsyncClient, qr_url: str) -> str:
         """Return a browser-safe data URL so mp.weixin hotlink restrictions do not break <img>."""

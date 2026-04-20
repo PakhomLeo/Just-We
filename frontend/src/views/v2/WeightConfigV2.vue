@@ -128,6 +128,11 @@ async function runSimulation() {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 24px;
+  align-items: stretch;
+
+  :deep(.v2-section) {
+    height: 100%;
+  }
 }
 
 .form-grid {

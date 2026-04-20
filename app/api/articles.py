@@ -1,6 +1,6 @@
 """Article API routes."""
 
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status, Query
 
 from app.core.dependencies import DbSession, CurrentUser
 from app.schemas.article import (
@@ -9,7 +9,7 @@ from app.schemas.article import (
     ArticleWithAccountResponse,
 )
 from app.services.article_service import ArticleService
-from app.services.ai_service import AIService
+from app.tasks.ai_task import run_article_ai_analysis
 
 
 router = APIRouter(prefix="/articles", tags=["Articles"])
@@ -174,25 +174,16 @@ async def delete_article(
 @router.post("/{article_id}/reanalyze-ai", response_model=ArticleResponse)
 async def reanalyze_article_ai(
     article_id: int,
+    background_tasks: BackgroundTasks,
     db: DbSession,
     current_user: CurrentUser,
 ):
-    """Run the three-stage AI pipeline again for a visible article."""
+    """Queue the three-stage AI pipeline again for a visible article."""
     article_service = ArticleService(db)
     article = await article_service.get_visible_article(article_id, current_user)
     if article is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Article {article_id} not found")
-    pipeline = await AIService(db=db).analyze_article_pipeline(article.content or "", article.images or [])
-    updated = await article_service.update_ai_analysis(
-        article_id=article.id,
-        ai_relevance_ratio=pipeline.get("ratio", 0.0),
-        ai_judgment=pipeline.get("ai_judgment") or {},
-        ai_text_analysis=pipeline.get("ai_text_analysis"),
-        ai_image_analysis=pipeline.get("ai_image_analysis"),
-        ai_type_judgment=pipeline.get("ai_type_judgment"),
-        ai_combined_analysis=pipeline.get("ai_combined_analysis"),
-        ai_target_match=pipeline.get("ai_target_match"),
-        ai_analysis_status=pipeline.get("status"),
-        ai_analysis_error=pipeline.get("ai_analysis_error"),
-    )
+    updated = await article_service.mark_ai_pending(article.id)
+    await db.commit()
+    background_tasks.add_task(run_article_ai_analysis, article.id)
     return ArticleResponse.model_validate(updated)

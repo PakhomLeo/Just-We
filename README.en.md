@@ -43,7 +43,7 @@ app/         FastAPI application, API routers, services, repositories, tasks, mo
 alembic/     PostgreSQL migration chain
 frontend/    Vue 3, Vite, Element Plus, Pinia admin console
 tests/       Backend regression tests
-docs/        Deployment, configuration, design, and reference documentation
+docs/        Docker deployment, configuration, and technical design documentation
 ```
 
 ## Technology Stack
@@ -70,12 +70,6 @@ Compose file from the image itself:
 mkdir -p just-we && cd just-we && printf 'JUST_WE_JWT_SECRET_KEY=%s\nJUST_WE_DEFAULT_ADMIN_PASSWORD=admin123\n' "$(openssl rand -hex 32)" > .env && docker run --rm ghcr.io/pakhomleo/just-we:latest cat /app/docker-compose.release.yml | docker compose -p just-we -f - up -d
 ```
 
-Inside a source checkout, Docker Compose can also build the app locally:
-
-```bash
-docker compose up -d --build
-```
-
 Then open:
 
 - Web UI and API: <http://localhost:8000>
@@ -88,106 +82,15 @@ Default bootstrap account:
 - Password: `admin123`
 
 Before exposing the service, set a strong `JWT_SECRET_KEY` and change the
-default admin password. See [Docker deployment](docs/docker.md) for upgrade,
-backup, restore, logs, and reset commands.
-
-## Local Development
-
-Requirements:
-
-- Python 3.12
-- Node.js 20.19+ or 22.12+
-- PostgreSQL
-- Redis
-
-Install backend dependencies:
-
-```bash
-uv sync
-```
-
-Install frontend dependencies:
-
-```bash
-cd frontend
-npm install
-```
-
-Copy the local environment example and adjust database credentials:
-
-```bash
-cp .env.example .env
-```
-
-Run migrations:
-
-```bash
-uv run alembic upgrade head
-```
-
-Start the backend:
-
-```bash
-uv run uvicorn app.main:app --reload
-```
-
-Start the frontend dev server:
-
-```bash
-cd frontend
-npm run dev
-```
-
-Default local URLs:
-
-- Frontend dev server: <http://localhost:5173>
-- Backend API: <http://localhost:8000>
-
-## Configuration
-
-Configuration is loaded from environment variables:
-
-- `.env.example` for local development.
-- `.env.docker.example` for Docker-specific deployment overrides.
-
-Key production settings include `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET_KEY`,
-`MEDIA_ROOT`, `FRONTEND_DIST_PATH`, `LLM_API_URL`, `LLM_API_KEY`,
-`WEREAD_PLATFORM_URL`, and the default admin bootstrap variables. See
-[Configuration](docs/configuration.md) for the full table and operational notes.
-
-## Testing
-
-Backend checks:
-
-```bash
-uv run ruff check app tests scripts
-uv run pytest -q
-uv run python -m compileall app tests scripts
-```
-
-Frontend build:
-
-```bash
-cd frontend
-npm run build
-```
-
-Docker checks:
-
-```bash
-docker compose config
-docker compose build
-```
+default admin password. See [Docker deployment](docs/docker.md) and
+[Configuration](docs/configuration.md) for deployment, upgrade, backup, restore,
+logs, reset commands, and environment variables.
 
 ## Documentation
 
 - [Technical design](docs/technical-design.md)
 - [Docker deployment](docs/docker.md)
 - [Configuration](docs/configuration.md)
-- [Project expectations](docs/项目期望.md)
-- [Frontend details](docs/前端详情.md)
-- [Backend details](docs/后端详情.md)
-- [Reference project notes](docs/参考项目详情.md)
 
 `external_references/` is a local-only reference directory. It is ignored by Git
 and excluded from the Docker build context; it is not part of the open source
@@ -196,9 +99,8 @@ release.
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Keep
-changes focused, add tests for backend behavior changes, and do not commit
-runtime data, credentials, media, logs, frontend build output, or
-`external_references/`.
+changes focused, and do not commit runtime data, credentials, media, logs,
+frontend build output, or `external_references/`.
 
 ## Security
 

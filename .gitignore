@@ -22,6 +22,12 @@ media/
 external_references/
 logs/
 
+# Local-only planning and implementation notes
+docs/前端详情.md
+docs/后端详情.md
+docs/项目期望.md
+docs/参考项目详情.md
+
 # Node / frontend
 node_modules/
 frontend/node_modules/

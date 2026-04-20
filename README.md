@@ -53,12 +53,6 @@ docker pull ghcr.io/pakhomleo/just-we:latest
 mkdir -p just-we && cd just-we && printf 'JUST_WE_JWT_SECRET_KEY=%s\nJUST_WE_DEFAULT_ADMIN_PASSWORD=admin123\n' "$(openssl rand -hex 32)" > .env && docker run --rm ghcr.io/pakhomleo/just-we:latest cat /app/docker-compose.release.yml | docker compose -p just-we -f - up -d
 ```
 
-如果你在本仓库源码目录内，也可以本地构建启动完整环境：
-
-```bash
-docker compose up -d --build
-```
-
 启动后访问：
 
 - Web UI 和 API：<http://localhost:8000>
@@ -70,108 +64,19 @@ docker compose up -d --build
 - 用户名：`admin`
 - 密码：`admin123`
 
-生产环境暴露服务前必须修改 `JWT_SECRET_KEY`，并在首次登录后修改默认管理员密码。更多部署、升级、备份、恢复和日志查看方式见 [Docker 部署文档](docs/docker.md)。
-
-## 本地开发
-
-准备依赖：
-
-- Python 3.12
-- Node.js 20.19+ 或 22.12+
-- PostgreSQL
-- Redis
-
-安装后端依赖：
-
-```bash
-uv sync
-```
-
-安装前端依赖：
-
-```bash
-cd frontend
-npm install
-```
-
-复制本地环境变量：
-
-```bash
-cp .env.example .env
-```
-
-执行数据库迁移：
-
-```bash
-uv run alembic upgrade head
-```
-
-启动后端：
-
-```bash
-uv run uvicorn app.main:app --reload
-```
-
-启动前端开发服务器：
-
-```bash
-cd frontend
-npm run dev
-```
-
-默认本地地址：
-
-- 前端开发服务器：<http://localhost:5173>
-- 后端 API：<http://localhost:8000>
-
-## 配置
-
-配置通过环境变量加载：
-
-- `.env.example`：本地开发示例。
-- `.env.docker.example`：Docker 部署覆盖示例。
-
-关键配置包括 `DATABASE_URL`、`REDIS_URL`、`JWT_SECRET_KEY`、`MEDIA_ROOT`、`FRONTEND_DIST_PATH`、`LLM_API_URL`、`LLM_API_KEY`、`WEREAD_PLATFORM_URL` 和默认管理员启动配置。完整说明见 [配置文档](docs/configuration.md)。
-
-## 测试
-
-后端检查：
-
-```bash
-uv run ruff check app tests scripts
-uv run pytest -q
-uv run python -m compileall app tests scripts
-```
-
-前端构建：
-
-```bash
-cd frontend
-npm run build
-```
-
-Docker 检查：
-
-```bash
-docker compose config
-docker compose build
-```
+生产环境暴露服务前必须修改 `JWT_SECRET_KEY`，并在首次登录后修改默认管理员密码。更多部署、升级、备份、恢复、日志查看和环境变量方式见 [Docker 部署文档](docs/docker.md) 与 [配置说明](docs/configuration.md)。
 
 ## 文档
 
 - [技术设计文档](docs/technical-design.md)
 - [Docker 部署](docs/docker.md)
 - [配置说明](docs/configuration.md)
-- [项目期望](docs/项目期望.md)
-- [前端详情](docs/前端详情.md)
-- [后端详情](docs/后端详情.md)
-- [参考项目详情](docs/参考项目详情.md)
 
 `external_references/` 是本地参考资料目录，已被 Git 和 Docker build context 排除，不属于开源发布内容。
 
 ## 贡献
 
-提交 Pull Request 前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。请保持变更聚焦，为后端行为、权限、迁移、Feed、导出和调度逻辑补充必要测试，不要提交运行数据、密钥、媒体文件、日志、前端构建产物或 `external_references/`。
+提交 Pull Request 前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。请保持变更聚焦，不要提交运行数据、密钥、媒体文件、日志、前端构建产物或 `external_references/`。
 
 ## 安全
 
